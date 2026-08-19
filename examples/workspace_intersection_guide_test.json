@@ -1,0 +1,100 @@
+{
+  "format": "qlabs_track_editor",
+  "version": "2.0.0-dev",
+  "units": "meters",
+  "project": {
+    "scale_name": "1:1",
+    "scale_factor": 1.0
+  },
+  "canvas": {
+    "width_m": 100.0,
+    "height_m": 70.0
+  },
+  "scenery_fill": {
+    "style": "suburban",
+    "density": "medium",
+    "roadside_reserve_m": 4.0,
+    "building_road_band_m": 18.0
+  },
+  "environment": {
+    "enabled": false,
+    "weather": "clear_skies",
+    "time_of_day": 12.0
+  },
+  "workspace_platform": {
+    "enabled": false,
+    "profile": "cityscape",
+    "workspace_label": "Cityscape",
+    "workspace_module": "Cityscape",
+    "size_x_m": 500.0,
+    "size_y_m": 500.0,
+    "center_x_m": 0.0,
+    "center_y_m": 0.0,
+    "bottom_z_m": -5.0,
+    "top_z_m": 100.0,
+    "rgb": [
+      54,
+      60,
+      66
+    ],
+    "environment_support": "confirmed",
+    "size_note": "Approx. 500 m \u00d7 500 m; origin centered in the world."
+  },
+  "workspace": {
+    "mode": "cityscape",
+    "label": "Cityscape",
+    "spline_z_m": 1.0,
+    "show_road_reference": false,
+    "show_navigation_regions": false,
+    "show_reference_points": false,
+    "show_reference_labels": false
+  },
+  "objects": [
+    {
+      "id": "t1",
+      "type": "t_junction",
+      "x": -18.0,
+      "y": 0.0,
+      "rotation_deg": 0.0,
+      "arm_length_m": 12.0,
+      "width_m": 6.0,
+      "guide_line": {
+        "enabled": true,
+        "position": "left",
+        "custom_offset_m": -1.5,
+        "width_m": 0.1,
+        "color": "yellow",
+        "rgb": [
+          255,
+          215,
+          0
+        ],
+        "style": "solid",
+        "scale_width_with_project": true
+      }
+    },
+    {
+      "id": "x1",
+      "type": "cross_intersection",
+      "x": 18.0,
+      "y": 0.0,
+      "rotation_deg": 0.0,
+      "arm_length_m": 12.0,
+      "width_m": 6.0,
+      "guide_line": {
+        "enabled": true,
+        "position": "right",
+        "custom_offset_m": 1.5,
+        "width_m": 0.1,
+        "color": "blue",
+        "rgb": [
+          60,
+          160,
+          255
+        ],
+        "style": "dashed",
+        "scale_width_with_project": true
+      }
+    }
+  ]
+}

@@ -1,0 +1,35 @@
+{
+  "format": "qlabs_track_editor",
+  "version": "2.0.0-dev",
+  "units": "meters",
+  "project": {
+    "scale_name": "1:1",
+    "scale_factor": 1.0
+  },
+  "environment": {
+    "enabled": false,
+    "weather": "clear_skies",
+    "time_of_day": 12.0
+  },
+  "workspace": {
+    "mode": "custom",
+    "show_road_reference": true,
+    "show_navigation_regions": true,
+    "show_reference_points": true,
+    "show_reference_labels": true
+  },
+  "objects": [
+    {"type": "office_building", "id": "gallery-office", "x": -15.0, "y": 6.0, "rotation_deg": 0.0, "z_m": 0.0, "actor_scale": 1.0, "scale_with_project": true, "configuration": 0},
+    {"type": "apartment_building", "id": "gallery-apartment", "x": -7.0, "y": 6.0, "rotation_deg": 0.0, "z_m": 0.0, "actor_scale": 1.0, "scale_with_project": true, "configuration": 0},
+    {"type": "shop_building", "id": "gallery-shop", "x": 2.0, "y": 6.0, "rotation_deg": 0.0, "z_m": 0.0, "actor_scale": 1.0, "scale_with_project": true, "configuration": 0},
+    {"type": "stepped_tower", "id": "gallery-tower", "x": 11.0, "y": 6.0, "rotation_deg": 0.0, "z_m": 0.0, "actor_scale": 1.0, "scale_with_project": true, "configuration": 0},
+
+    {"type": "round_tree", "id": "gallery-tree", "x": -16.0, "y": -6.0, "rotation_deg": 0.0, "z_m": 0.0, "actor_scale": 1.0, "scale_with_project": true, "configuration": 0},
+    {"type": "pine_tree", "id": "gallery-pine", "x": -11.0, "y": -6.0, "rotation_deg": 0.0, "z_m": 0.0, "actor_scale": 1.0, "scale_with_project": true, "configuration": 0},
+    {"type": "park_bench", "id": "gallery-bench", "x": -6.0, "y": -6.0, "rotation_deg": 0.0, "z_m": 0.0, "actor_scale": 1.0, "scale_with_project": true, "configuration": 0},
+    {"type": "lamp_post", "id": "gallery-lamp", "x": -2.0, "y": -6.0, "rotation_deg": 0.0, "z_m": 0.0, "actor_scale": 1.0, "scale_with_project": true, "configuration": 0},
+    {"type": "trash_bin", "id": "gallery-bin", "x": 2.0, "y": -6.0, "rotation_deg": 0.0, "z_m": 0.0, "actor_scale": 1.0, "scale_with_project": true, "configuration": 0},
+    {"type": "planter", "id": "gallery-planter", "x": 6.0, "y": -6.0, "rotation_deg": 0.0, "z_m": 0.0, "actor_scale": 1.0, "scale_with_project": true, "configuration": 0},
+    {"type": "fountain", "id": "gallery-fountain", "x": 12.0, "y": -6.0, "rotation_deg": 0.0, "z_m": 0.0, "actor_scale": 1.0, "scale_with_project": true, "configuration": 0}
+  ]
+}
