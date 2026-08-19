@@ -66,6 +66,14 @@ OPEN_ROAD_REFERENCE_TOTAL_WIDTH_M = (
     + OPEN_ROAD_REFERENCE_SEPARATOR_WIDTH_M
 )
 
+# Editor-only alignment offset for the Open Road reference.
+# Qt scene Y is inverted relative to QLabs/world Y, so -1.0 m moves the
+# reference visually DOWN by one 1 m grid block in the editor.
+# These values affect only the editor reference overlay; they are never
+# exported to QLabs.
+OPEN_ROAD_REFERENCE_OFFSET_X_M = 0.0
+OPEN_ROAD_REFERENCE_OFFSET_Y_M = -1.0
+
 # Median/barrier wall defaults. The wall is an editor/exportable static object
 # and straight roads can snap flush to either side of it.
 DEFAULT_MEDIAN_WALL_LENGTH_M = 20.0

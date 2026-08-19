@@ -6,7 +6,11 @@ from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import QGraphicsView
 
-from config import PIXELS_PER_METER
+from config import (
+    PIXELS_PER_METER,
+    WORKSPACE_CITYSCAPE,
+    WORKSPACE_TOWNSCAPE,
+)
 from core.geometry import scene_to_world, world_to_scene
 from items.experiment import ExperimentActorItem, SecondaryQCarItem
 from ui.scene import TrackScene
@@ -61,8 +65,15 @@ class TrackView(QGraphicsView):
         painter.save()
         painter.setClipRect(editable_rect)
         # A translucent fill distinguishes the editable region without hiding
-        # an Open Road reference underneath it.
-        painter.fillRect(draw_rect, QColor(27, 30, 34, 205))
+        # workspace references. Raster documentation maps need a lighter veil
+        # than the vector Open Road overlay to remain useful for placement.
+        workspace_mode = getattr(self.editor_window, "workspace_mode", "")
+        fill_alpha = (
+            95
+            if workspace_mode in {WORKSPACE_CITYSCAPE, WORKSPACE_TOWNSCAPE}
+            else 205
+        )
+        painter.fillRect(draw_rect, QColor(27, 30, 34, fill_alpha))
 
         # Adaptive grid: large canvases/Open Road automatically use coarser
         # spacing so the scene remains responsive while zoomed out.

@@ -1,0 +1,45 @@
+{
+  "format": "qlabs_workspace_raster_reference",
+  "version": 1,
+  "mode": "cityscape",
+  "workspace": "Cityscape",
+  "units": "meters",
+  "source": {
+    "documentation_page": "https://qlabs.quanserdocs.com/en/latest/Workspaces/Cityscape.html",
+    "navigation_image": "https://qlabs.quanserdocs.com/en/latest/_images/cityscape_nav_area.png",
+    "note": "Quanser documentation-derived visual placement reference; not surveyed CAD/vector road geometry."
+  },
+  "world": {
+    "size_x_m": 500.0,
+    "size_y_m": 500.0,
+    "center_x_m": 0.0,
+    "center_y_m": 0.0,
+    "ground_z_m": 0.0
+  },
+  "navigation_area": {
+    "outer_size_x_m": 400.0,
+    "outer_size_y_m": 400.0,
+    "center_x_m": 0.0,
+    "center_y_m": 0.0,
+    "note": "Only the documented outer navigation boundary is drawn; buildings, trees, fences and other obstacles create breaks inside it."
+  },
+  "image": {
+    "filename": "cityscape_nav_area.png",
+    "pixel_width": 869,
+    "pixel_height": 663,
+    "world_rect_m": [-250.0, -250.0, 500.0, 500.0],
+    "calibration": "Image is centered on the documented world origin and stretched to the documented approximate 500 m x 500 m world footprint. Treat road placement as approximate visual guidance."
+  },
+  "reference_points": [
+    {"name": "Open World Origin", "x": 0.0, "y": 0.0, "z": 0.0, "yaw_deg": 0.0},
+    {"name": "Car Spawn Spot", "x": 0.0, "y": -1.300, "z": 0.005, "yaw_deg": 90.0},
+    {"name": "Road Parking 1", "x": -13.093, "y": -7.572, "z": 0.005, "yaw_deg": -42.0},
+    {"name": "Road Parking 2", "x": -18.078, "y": -2.879, "z": 0.005, "yaw_deg": -42.0},
+    {"name": "Parking Spot 1", "x": -5.987, "y": 14.643, "z": 0.005, "yaw_deg": 90.0},
+    {"name": "Parking Spot 2", "x": -8.700, "y": 14.643, "z": 0.005, "yaw_deg": 90.0},
+    {"name": "Parking Spot 3", "x": -11.048, "y": 14.643, "z": 0.005, "yaw_deg": 90.0},
+    {"name": "Parking Spot 4", "x": 3.978, "y": 33.322, "z": 0.005, "yaw_deg": 133.0},
+    {"name": "Parking Spot 5", "x": 2.007, "y": 31.476, "z": 0.005, "yaw_deg": 133.0},
+    {"name": "Parking Spot 6", "x": 0.040, "y": 29.733, "z": 0.005, "yaw_deg": 133.0}
+  ]
+}

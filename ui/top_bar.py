@@ -258,8 +258,8 @@ class TopControlBar(QWidget):
         self.workspace_mode_combo.addItem("Studio", WORKSPACE_STUDIO)
         self.workspace_mode_combo.addItem("Warehouse", WORKSPACE_WAREHOUSE)
         self.workspace_mode_combo.setToolTip(
-            "QLabs workspace used by the exported setup. Open Road also has a "
-            "2-D editor reference overlay."
+            "QLabs workspace used by the exported setup. Open Road, Cityscape, and "
+            "Townscape provide editor reference overlays."
         )
         self.workspace_mode_combo.currentIndexChanged.connect(
             self.window.workspace_mode_changed
@@ -287,7 +287,7 @@ class TopControlBar(QWidget):
         # Overlay toggles are compact symbols. Tooltips hold the long labels.
         self.workspace_show_road_checkbox = QToolButton()
         self.workspace_show_road_checkbox.setText("≋")
-        self.workspace_show_road_checkbox.setToolTip("Show Open Road road reference")
+        self.workspace_show_road_checkbox.setToolTip("Show workspace road/map reference")
         self.workspace_show_road_checkbox.setCheckable(True)
         self.workspace_show_road_checkbox.setChecked(True)
         self.workspace_show_road_checkbox.setFixedSize(30, 28)
@@ -298,7 +298,7 @@ class TopControlBar(QWidget):
 
         self.workspace_show_nav_checkbox = QToolButton()
         self.workspace_show_nav_checkbox.setText("▧")
-        self.workspace_show_nav_checkbox.setToolTip("Show Open Road navigation regions")
+        self.workspace_show_nav_checkbox.setToolTip("Show documented navigation area/boundary")
         self.workspace_show_nav_checkbox.setCheckable(True)
         self.workspace_show_nav_checkbox.setChecked(True)
         self.workspace_show_nav_checkbox.setFixedSize(30, 28)
@@ -309,7 +309,7 @@ class TopControlBar(QWidget):
 
         self.workspace_show_points_checkbox = QToolButton()
         self.workspace_show_points_checkbox.setText("●")
-        self.workspace_show_points_checkbox.setToolTip("Show published Open Road reference points")
+        self.workspace_show_points_checkbox.setToolTip("Show published workspace reference points")
         self.workspace_show_points_checkbox.setCheckable(True)
         self.workspace_show_points_checkbox.setChecked(True)
         self.workspace_show_points_checkbox.setFixedSize(30, 28)
@@ -320,7 +320,7 @@ class TopControlBar(QWidget):
 
         self.workspace_show_labels_checkbox = QToolButton()
         self.workspace_show_labels_checkbox.setText("A")
-        self.workspace_show_labels_checkbox.setToolTip("Show Open Road reference labels")
+        self.workspace_show_labels_checkbox.setToolTip("Show workspace reference labels")
         self.workspace_show_labels_checkbox.setCheckable(True)
         self.workspace_show_labels_checkbox.setChecked(True)
         self.workspace_show_labels_checkbox.setFixedSize(30, 28)
