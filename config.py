@@ -45,21 +45,33 @@ DEFAULT_ROAD_END_LENGTH_M = 8.0
 QCAR2_DESIGN_LENGTH_M = 4.6
 QCAR2_DESIGN_WIDTH_M = 1.9
 
-# Open Road v1.0.1 visual-width estimate.
-# The documentation-derived path is only an approximate 2-D center reference.
-# For inspection, render it as 3 lanes in each direction plus a separator.
-# Initial lane width follows the user's estimate of roughly one scale-1 QCar
-# width per lane. Change OPEN_ROAD_REFERENCE_LANE_WIDTH_M if visual comparison
-# against QLabs shows that the real lanes are wider.
+# Open Road visual-width calibration.
+# A direct QLabs comparison on 2026-08-19 showed that an 8.4 m custom spline
+# road is a useful visual match for ONE native three-lane Open Road
+# carriageway.  The editor reference therefore uses 8.4 m per carriageway
+# (2.8 m per displayed lane) and a 0.6 m median/barrier band.  These remain
+# visual calibration values rather than surveyed Quanser engineering data.
 OPEN_ROAD_REFERENCE_LANES_PER_SIDE = 3
-OPEN_ROAD_REFERENCE_LANE_WIDTH_M = 1.5 * QCAR2_DESIGN_WIDTH_M
-OPEN_ROAD_REFERENCE_SEPARATOR_WIDTH_M = 1.0
+OPEN_ROAD_REFERENCE_CARRIAGEWAY_WIDTH_M = 8.4
+OPEN_ROAD_REFERENCE_LANE_WIDTH_M = (
+    OPEN_ROAD_REFERENCE_CARRIAGEWAY_WIDTH_M
+    / OPEN_ROAD_REFERENCE_LANES_PER_SIDE
+)
+OPEN_ROAD_REFERENCE_SEPARATOR_WIDTH_M = 0.6
 OPEN_ROAD_REFERENCE_TOTAL_WIDTH_M = (
-    2.0
-    * OPEN_ROAD_REFERENCE_LANES_PER_SIDE
-    * OPEN_ROAD_REFERENCE_LANE_WIDTH_M
+    2.0 * OPEN_ROAD_REFERENCE_CARRIAGEWAY_WIDTH_M
     + OPEN_ROAD_REFERENCE_SEPARATOR_WIDTH_M
 )
+
+# Median-wall defaults.  The wall is an editor/exportable concrete barrier
+# used to reproduce the Open Road centre divider and can snap flush to a
+# straight road edge.
+DEFAULT_MEDIAN_WALL_LENGTH_M = 20.0
+DEFAULT_MEDIAN_WALL_WIDTH_M = 0.6
+DEFAULT_MEDIAN_WALL_HEIGHT_M = 0.85
+MEDIAN_WALL_COLOR = QColor(172, 166, 154)
+WALL_SNAP_DISTANCE_M = 1.0
+WALL_SNAP_DISTANCE_PX = WALL_SNAP_DISTANCE_M * PIXELS_PER_METER
 
 # Symbolic editor footprints for scene actors. These are for 2-D layout
 # readability; the QLabs exporter uses each actor's actual QLabs scale.

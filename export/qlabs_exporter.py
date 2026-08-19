@@ -34,8 +34,9 @@ def build_qlabs_setup_source(track_data: dict) -> str:
 #
 # v1.0 exports:
 #   - road surfaces
-#   - white road-edge markings
-#   - dashed yellow road-center markings
+#   - individually switchable road-edge markings
+#   - individually switchable dashed road-center markings
+#   - static median/barrier walls
 #   - enabled lane-following guide lines
 #   - traffic lights, road signs, crosswalks, and building boxes
 #   - one QCar2 start pose (if present)
@@ -473,25 +474,37 @@ def spawn_road_markings(qlabs, obj):
     half_width = road_width_design / 2.0
     edge_offset = max(0.01, half_width - EDGE_INSET_DESIGN_M)
 
+    markings = obj.get("road_markings", {}) or {}
+    show_edge_a = bool(markings.get("edge_a", True))
+    show_center = bool(markings.get("center", True))
+    show_edge_b = bool(markings.get("edge_b", True))
+    show_end_bar = bool(markings.get("end_bar", True))
+
     # ------------------------------------------------------------
     # Straight road
     # ------------------------------------------------------------
     if obj_type == "straight_road":
         length = float(obj.get("length_m", 20.0))
 
-        for local_y in (+edge_offset, -edge_offset):
+        for enabled, local_y in (
+            (show_edge_a, +edge_offset),
+            (show_edge_b, -edge_offset),
+        ):
+            if not enabled:
+                continue
             p1 = scaled_world_point(obj, -length / 2.0, local_y)
             p2 = scaled_world_point(obj, length / 2.0, local_y)
             spawn_straight_spline(
                 qlabs, p1, p2, edge_width, EDGE_COLOR, z=MARKING_Z
             )
 
-        spawn_center_dashes_straight(
-            qlabs,
-            obj,
-            (-length / 2.0, 0.0),
-            (length / 2.0, 0.0),
-        )
+        if show_center:
+            spawn_center_dashes_straight(
+                qlabs,
+                obj,
+                (-length / 2.0, 0.0),
+                (length / 2.0, 0.0),
+            )
         return
 
     # ------------------------------------------------------------
@@ -500,7 +513,12 @@ def spawn_road_markings(qlabs, obj):
     if obj_type == "road_end":
         length = float(obj.get("length_m", 8.0))
 
-        for local_y in (+edge_offset, -edge_offset):
+        for enabled, local_y in (
+            (show_edge_a, +edge_offset),
+            (show_edge_b, -edge_offset),
+        ):
+            if not enabled:
+                continue
             p1 = scaled_world_point(obj, -length / 2.0, local_y)
             p2 = scaled_world_point(obj, length / 2.0, local_y)
             spawn_straight_spline(
@@ -509,25 +527,27 @@ def spawn_road_markings(qlabs, obj):
 
         # Center line stops 0.9 design meters before the closed end,
         # matching the editor.
-        spawn_center_dashes_straight(
-            qlabs,
-            obj,
-            (-length / 2.0, 0.0),
-            (length / 2.0 - 0.90, 0.0),
-        )
+        if show_center:
+            spawn_center_dashes_straight(
+                qlabs,
+                obj,
+                (-length / 2.0, 0.0),
+                (length / 2.0 - 0.90, 0.0),
+            )
 
         # Closed road-end line is 0.30 design meters inside the end.
-        end_x = length / 2.0 - 0.30
-        a = scaled_world_point(obj, end_x, +edge_offset)
-        b = scaled_world_point(obj, end_x, -edge_offset)
-        spawn_straight_spline(
-            qlabs,
-            a,
-            b,
-            marking_width_effective(0.20),
-            EDGE_COLOR,
-            z=MARKING_Z,
-        )
+        if show_end_bar:
+            end_x = length / 2.0 - 0.30
+            a = scaled_world_point(obj, end_x, +edge_offset)
+            b = scaled_world_point(obj, end_x, -edge_offset)
+            spawn_straight_spline(
+                qlabs,
+                a,
+                b,
+                marking_width_effective(0.20),
+                EDGE_COLOR,
+                z=MARKING_Z,
+            )
         return
 
     # ------------------------------------------------------------
@@ -543,41 +563,44 @@ def spawn_road_markings(qlabs, obj):
         outer_radius = (radius_design + edge_offset) * scale
         inner_radius = max(0.001, (radius_design - edge_offset) * scale)
 
-        spawn_arc_spline(
-            qlabs,
-            center=center,
-            yaw_rad=yaw,
-            radius=outer_radius,
-            start_angle_deg=90.0,
-            end_angle_deg=90.0 - turn,
-            width=edge_width,
-            color=EDGE_COLOR,
-            z=MARKING_Z,
-        )
-        spawn_arc_spline(
-            qlabs,
-            center=center,
-            yaw_rad=yaw,
-            radius=inner_radius,
-            start_angle_deg=90.0,
-            end_angle_deg=90.0 - turn,
-            width=edge_width,
-            color=EDGE_COLOR,
-            z=MARKING_Z,
-        )
+        if show_edge_a:
+            spawn_arc_spline(
+                qlabs,
+                center=center,
+                yaw_rad=yaw,
+                radius=outer_radius,
+                start_angle_deg=90.0,
+                end_angle_deg=90.0 - turn,
+                width=edge_width,
+                color=EDGE_COLOR,
+                z=MARKING_Z,
+            )
+        if show_edge_b:
+            spawn_arc_spline(
+                qlabs,
+                center=center,
+                yaw_rad=yaw,
+                radius=inner_radius,
+                start_angle_deg=90.0,
+                end_angle_deg=90.0 - turn,
+                width=edge_width,
+                color=EDGE_COLOR,
+                z=MARKING_Z,
+            )
 
-        spawn_dashed_arc(
-            qlabs,
-            center=center,
-            yaw_rad=yaw,
-            radius=radius_design * scale,
-            turn_angle_deg=turn,
-            width=marking_width_effective(CENTER_LINE_WIDTH_DESIGN_M),
-            color=CENTER_COLOR,
-            z=MARKING_Z,
-            dash_design_m=CENTER_DASH_LENGTH_DESIGN_M,
-            gap_design_m=CENTER_DASH_GAP_DESIGN_M,
-        )
+        if show_center:
+            spawn_dashed_arc(
+                qlabs,
+                center=center,
+                yaw_rad=yaw,
+                radius=radius_design * scale,
+                turn_angle_deg=turn,
+                width=marking_width_effective(CENTER_LINE_WIDTH_DESIGN_M),
+                color=CENTER_COLOR,
+                z=MARKING_Z,
+                dash_design_m=CENTER_DASH_LENGTH_DESIGN_M,
+                gap_design_m=CENTER_DASH_GAP_DESIGN_M,
+            )
         return
 
     # ------------------------------------------------------------
@@ -586,28 +609,32 @@ def spawn_road_markings(qlabs, obj):
     if obj_type == "t_junction":
         arm = float(obj.get("arm_length_m", 12.0))
 
-        # Horizontal upper edge is continuous.
-        a = scaled_world_point(obj, -arm, +edge_offset)
-        b = scaled_world_point(obj, arm, +edge_offset)
-        spawn_straight_spline(qlabs, a, b, edge_width, EDGE_COLOR, z=MARKING_Z)
-
-        # Lower horizontal edge has an opening for the stem.
-        for x1, x2 in ((-arm, -half_width), (half_width, arm)):
-            a = scaled_world_point(obj, x1, -edge_offset)
-            b = scaled_world_point(obj, x2, -edge_offset)
+        if show_edge_a:
+            # Edge A: upper horizontal edge + left stem side.
+            a = scaled_world_point(obj, -arm, +edge_offset)
+            b = scaled_world_point(obj, arm, +edge_offset)
             spawn_straight_spline(qlabs, a, b, edge_width, EDGE_COLOR, z=MARKING_Z)
 
-        # Stem side edges.
-        for local_x in (-edge_offset, +edge_offset):
-            a = scaled_world_point(obj, local_x, -half_width)
-            b = scaled_world_point(obj, local_x, -arm)
+            a = scaled_world_point(obj, -edge_offset, -half_width)
+            b = scaled_world_point(obj, -edge_offset, -arm)
             spawn_straight_spline(qlabs, a, b, edge_width, EDGE_COLOR, z=MARKING_Z)
 
-        # Center markings stop at the mouth of the junction rather than
-        # crossing the central shared road area.
-        spawn_center_dashes_straight(qlabs, obj, (-arm, 0.0), (-half_width, 0.0))
-        spawn_center_dashes_straight(qlabs, obj, (half_width, 0.0), (arm, 0.0))
-        spawn_center_dashes_straight(qlabs, obj, (0.0, -half_width), (0.0, -arm))
+        if show_edge_b:
+            # Edge B: lower horizontal pieces + right stem side.
+            for x1, x2 in ((-arm, -half_width), (half_width, arm)):
+                a = scaled_world_point(obj, x1, -edge_offset)
+                b = scaled_world_point(obj, x2, -edge_offset)
+                spawn_straight_spline(qlabs, a, b, edge_width, EDGE_COLOR, z=MARKING_Z)
+
+            a = scaled_world_point(obj, +edge_offset, -half_width)
+            b = scaled_world_point(obj, +edge_offset, -arm)
+            spawn_straight_spline(qlabs, a, b, edge_width, EDGE_COLOR, z=MARKING_Z)
+
+        if show_center:
+            # Center markings stop at the mouth of the junction.
+            spawn_center_dashes_straight(qlabs, obj, (-arm, 0.0), (-half_width, 0.0))
+            spawn_center_dashes_straight(qlabs, obj, (half_width, 0.0), (arm, 0.0))
+            spawn_center_dashes_straight(qlabs, obj, (0.0, -half_width), (0.0, -arm))
         return
 
     # ------------------------------------------------------------
@@ -616,29 +643,34 @@ def spawn_road_markings(qlabs, obj):
     if obj_type == "cross_intersection":
         arm = float(obj.get("arm_length_m", 12.0))
 
-        # Horizontal road edge segments, leaving vertical opening.
-        for local_y in (+edge_offset, -edge_offset):
+        if show_edge_a:
+            # Edge A: upper horizontal + left vertical boundary pieces.
             for x1, x2 in ((-arm, -half_width), (half_width, arm)):
-                a = scaled_world_point(obj, x1, local_y)
-                b = scaled_world_point(obj, x2, local_y)
-                spawn_straight_spline(
-                    qlabs, a, b, edge_width, EDGE_COLOR, z=MARKING_Z
-                )
-
-        # Vertical road edge segments, leaving horizontal opening.
-        for local_x in (-edge_offset, +edge_offset):
+                a = scaled_world_point(obj, x1, +edge_offset)
+                b = scaled_world_point(obj, x2, +edge_offset)
+                spawn_straight_spline(qlabs, a, b, edge_width, EDGE_COLOR, z=MARKING_Z)
             for y1, y2 in ((arm, half_width), (-half_width, -arm)):
-                a = scaled_world_point(obj, local_x, y1)
-                b = scaled_world_point(obj, local_x, y2)
-                spawn_straight_spline(
-                    qlabs, a, b, edge_width, EDGE_COLOR, z=MARKING_Z
-                )
+                a = scaled_world_point(obj, -edge_offset, y1)
+                b = scaled_world_point(obj, -edge_offset, y2)
+                spawn_straight_spline(qlabs, a, b, edge_width, EDGE_COLOR, z=MARKING_Z)
 
-        # Four separate arm markings; keep the intersection center clear.
-        spawn_center_dashes_straight(qlabs, obj, (-arm, 0.0), (-half_width, 0.0))
-        spawn_center_dashes_straight(qlabs, obj, (half_width, 0.0), (arm, 0.0))
-        spawn_center_dashes_straight(qlabs, obj, (0.0, arm), (0.0, half_width))
-        spawn_center_dashes_straight(qlabs, obj, (0.0, -half_width), (0.0, -arm))
+        if show_edge_b:
+            # Edge B: lower horizontal + right vertical boundary pieces.
+            for x1, x2 in ((-arm, -half_width), (half_width, arm)):
+                a = scaled_world_point(obj, x1, -edge_offset)
+                b = scaled_world_point(obj, x2, -edge_offset)
+                spawn_straight_spline(qlabs, a, b, edge_width, EDGE_COLOR, z=MARKING_Z)
+            for y1, y2 in ((arm, half_width), (-half_width, -arm)):
+                a = scaled_world_point(obj, +edge_offset, y1)
+                b = scaled_world_point(obj, +edge_offset, y2)
+                spawn_straight_spline(qlabs, a, b, edge_width, EDGE_COLOR, z=MARKING_Z)
+
+        if show_center:
+            # Four separate arm markings; keep the intersection center clear.
+            spawn_center_dashes_straight(qlabs, obj, (-arm, 0.0), (-half_width, 0.0))
+            spawn_center_dashes_straight(qlabs, obj, (half_width, 0.0), (arm, 0.0))
+            spawn_center_dashes_straight(qlabs, obj, (0.0, arm), (0.0, half_width))
+            spawn_center_dashes_straight(qlabs, obj, (0.0, -half_width), (0.0, -arm))
         return
 
 
@@ -2628,6 +2660,40 @@ def spawn_scene_actor(qlabs, obj):
     uniform_scale = [actor_scale, actor_scale, actor_scale]
     configuration = int(obj.get("configuration", 0))
 
+    if obj_type == "median_wall":
+        # Export the editor median as one static collision-enabled BasicShape
+        # barrier.  This scales cleanly with the project and matches the
+        # editor's exact length/width rather than depending on fixed native
+        # wall-module spacing.
+        scale = project_scale()
+        length = max(0.05, float(obj.get("length_m", 20.0)) * scale)
+        width = max(0.02, float(obj.get("width_m", 0.6)) * scale)
+        height = max(0.02, float(obj.get("height_m", 0.85)) * scale)
+        actor = QLabsBasicShape(qlabs)
+        status, _actor_number = actor.spawn(
+            location=[
+                float(obj.get("x", 0.0)) * scale,
+                float(obj.get("y", 0.0)) * scale,
+                TRACK_BASE_Z + height / 2.0,
+            ],
+            rotation=[0.0, 0.0, yaw],
+            scale=[length, width, height],
+            configuration=QLabsBasicShape.SHAPE_CUBE,
+            waitForConfirmation=True,
+        )
+        if status != 0:
+            print("Unable to spawn median wall", obj.get("id"), "status", status)
+            return None
+        actor.set_material_properties(
+            color=[0.67, 0.65, 0.60],
+            roughness=0.85,
+            metallic=False,
+            waitForConfirmation=True,
+        )
+        actor.set_enable_dynamics(False, waitForConfirmation=True)
+        actor.set_enable_collisions(True, waitForConfirmation=True)
+        return actor
+
     if obj_type == "traffic_light":
         actor = QLabsTrafficLight(qlabs)
         actor.spawn(location=actor_location(obj), rotation=[0, 0, yaw], scale=uniform_scale,
@@ -2753,6 +2819,7 @@ def spawn_scene_actor(qlabs, obj):
 
 def spawn_scene_actors(qlabs, objects):
     scene_types = {
+        "median_wall",
         "traffic_light", "stop_sign", "yield_sign", "roundabout_sign",
         "traffic_sign_catalog", "crosswalk", "building_box", "office_building", "apartment_building",
         "shop_building", "stepped_tower", "round_tree", "pine_tree",
@@ -3008,6 +3075,7 @@ _ROAD_TYPES = {
 }
 
 _SCENE_ACTOR_TYPES = {
+    "median_wall",
     "traffic_light",
     "stop_sign",
     "yield_sign",

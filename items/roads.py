@@ -3,7 +3,7 @@
 import math
 
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QPainter, QPainterPath, QPainterPathStroker, QPen
+from PySide6.QtGui import QColor, QPainter, QPainterPath, QPainterPathStroker, QPen
 
 from config import (
     PIXELS_PER_METER,
@@ -20,6 +20,10 @@ from config import (
     CENTER_LINE_WIDTH_PX,
     SELECTION_LINE_WIDTH_PX,
     EDGE_LINE_INSET_PX,
+    DEFAULT_MEDIAN_WALL_LENGTH_M,
+    DEFAULT_MEDIAN_WALL_WIDTH_M,
+    DEFAULT_MEDIAN_WALL_HEIGHT_M,
+    MEDIAN_WALL_COLOR,
 )
 from core.geometry import world_to_scene
 from items.base import TrackItem
@@ -40,6 +44,9 @@ class StraightRoadItem(TrackItem):
         self.width_m = float(width_m)
 
     def supports_guide_line(self) -> bool:
+        return True
+
+    def supports_road_markings(self) -> bool:
         return True
 
     @property
@@ -82,15 +89,17 @@ class StraightRoadItem(TrackItem):
         edge_pen = QPen(EDGE_LINE_COLOR, EDGE_LINE_WIDTH_PX)
         painter.setPen(edge_pen)
 
-        painter.drawLine(
-            QPointF(-self.length_px / 2.0, -self.width_px / 2.0 + EDGE_LINE_INSET_PX),
-            QPointF(self.length_px / 2.0, -self.width_px / 2.0 + EDGE_LINE_INSET_PX),
-        )
+        if self.show_edge_a:
+            painter.drawLine(
+                QPointF(-self.length_px / 2.0, -self.width_px / 2.0 + EDGE_LINE_INSET_PX),
+                QPointF(self.length_px / 2.0, -self.width_px / 2.0 + EDGE_LINE_INSET_PX),
+            )
 
-        painter.drawLine(
-            QPointF(-self.length_px / 2.0, self.width_px / 2.0 - EDGE_LINE_INSET_PX),
-            QPointF(self.length_px / 2.0, self.width_px / 2.0 - EDGE_LINE_INSET_PX),
-        )
+        if self.show_edge_b:
+            painter.drawLine(
+                QPointF(-self.length_px / 2.0, self.width_px / 2.0 - EDGE_LINE_INSET_PX),
+                QPointF(self.length_px / 2.0, self.width_px / 2.0 - EDGE_LINE_INSET_PX),
+            )
 
         # ========================================================
         # Yellow center line
@@ -102,10 +111,11 @@ class StraightRoadItem(TrackItem):
         )
         painter.setPen(center_pen)
 
-        painter.drawLine(
-            QPointF(-self.length_px / 2.0, 0),
-            QPointF(self.length_px / 2.0, 0),
-        )
+        if self.show_center_line:
+            painter.drawLine(
+                QPointF(-self.length_px / 2.0, 0),
+                QPointF(self.length_px / 2.0, 0),
+            )
 
         # ========================================================
         # Optional lane-following guide line
@@ -152,6 +162,7 @@ class StraightRoadItem(TrackItem):
                 "length_m": self.length_m,
                 "width_m": self.width_m,
                 "guide_line": self.guide_dict(),
+                "road_markings": self.road_marking_dict(),
             }
         )
         return data
@@ -171,6 +182,7 @@ class StraightRoadItem(TrackItem):
         )
         item.setRotation(float(data.get("rotation_deg", 0.0)))
         item.load_guide_dict(data.get("guide_line"))
+        item.load_road_marking_dict(data.get("road_markings"))
         return item
 
     def selection_text(self) -> str:
@@ -211,6 +223,9 @@ class Curve90RoadItem(TrackItem):
             self.radius_m = self.width_m / 2.0 + 0.5
 
     def supports_guide_line(self) -> bool:
+        return True
+
+    def supports_road_markings(self) -> bool:
         return True
 
     @property
@@ -279,8 +294,10 @@ class Curve90RoadItem(TrackItem):
 
         edge_pen = QPen(EDGE_LINE_COLOR, EDGE_LINE_WIDTH_PX)
         painter.setPen(edge_pen)
-        painter.drawPath(self._arc_path_for_radius(outer_radius))
-        painter.drawPath(self._arc_path_for_radius(inner_radius))
+        if self.show_edge_a:
+            painter.drawPath(self._arc_path_for_radius(outer_radius))
+        if self.show_edge_b:
+            painter.drawPath(self._arc_path_for_radius(inner_radius))
 
         # ========================================================
         # Yellow dashed center line
@@ -291,7 +308,8 @@ class Curve90RoadItem(TrackItem):
             Qt.PenStyle.DashLine,
         )
         painter.setPen(center_pen)
-        painter.drawPath(self.center_path())
+        if self.show_center_line:
+            painter.drawPath(self.center_path())
 
         # ========================================================
         # Optional lane-following guide line
@@ -336,6 +354,7 @@ class Curve90RoadItem(TrackItem):
                 "radius_m": self.radius_m,
                 "width_m": self.width_m,
                 "guide_line": self.guide_dict(),
+                "road_markings": self.road_marking_dict(),
             }
         )
         return data
@@ -355,6 +374,7 @@ class Curve90RoadItem(TrackItem):
         )
         item.setRotation(float(data.get("rotation_deg", 0.0)))
         item.load_guide_dict(data.get("guide_line"))
+        item.load_road_marking_dict(data.get("road_markings"))
         return item
 
     def selection_text(self) -> str:
@@ -448,6 +468,9 @@ class RoadEndItem(TrackItem):
     def supports_guide_line(self) -> bool:
         return True
 
+    def supports_road_markings(self) -> bool:
+        return True
+
     @property
     def length_px(self) -> float:
         return self.length_m * PIXELS_PER_METER
@@ -479,14 +502,16 @@ class RoadEndItem(TrackItem):
 
         edge_pen = QPen(EDGE_LINE_COLOR, EDGE_LINE_WIDTH_PX)
         painter.setPen(edge_pen)
-        painter.drawLine(
-            QPointF(-self.length_px / 2.0, -self.width_px / 2.0 + EDGE_LINE_INSET_PX),
-            QPointF(self.length_px / 2.0, -self.width_px / 2.0 + EDGE_LINE_INSET_PX),
-        )
-        painter.drawLine(
-            QPointF(-self.length_px / 2.0, self.width_px / 2.0 - EDGE_LINE_INSET_PX),
-            QPointF(self.length_px / 2.0, self.width_px / 2.0 - EDGE_LINE_INSET_PX),
-        )
+        if self.show_edge_a:
+            painter.drawLine(
+                QPointF(-self.length_px / 2.0, -self.width_px / 2.0 + EDGE_LINE_INSET_PX),
+                QPointF(self.length_px / 2.0, -self.width_px / 2.0 + EDGE_LINE_INSET_PX),
+            )
+        if self.show_edge_b:
+            painter.drawLine(
+                QPointF(-self.length_px / 2.0, self.width_px / 2.0 - EDGE_LINE_INSET_PX),
+                QPointF(self.length_px / 2.0, self.width_px / 2.0 - EDGE_LINE_INSET_PX),
+            )
 
         center_pen = QPen(
             CENTER_LINE_COLOR,
@@ -494,10 +519,11 @@ class RoadEndItem(TrackItem):
             Qt.PenStyle.DashLine,
         )
         painter.setPen(center_pen)
-        painter.drawLine(
-            QPointF(-self.length_px / 2.0, 0.0),
-            QPointF(self.length_px / 2.0 - 18.0, 0.0),
-        )
+        if self.show_center_line:
+            painter.drawLine(
+                QPointF(-self.length_px / 2.0, 0.0),
+                QPointF(self.length_px / 2.0 - 18.0, 0.0),
+            )
 
         if self.guide_enabled:
             offset_px = self.resolved_guide_offset_m() * PIXELS_PER_METER
@@ -508,12 +534,13 @@ class RoadEndItem(TrackItem):
             )
 
         # Closed road-end marking.
-        end_pen = QPen(EDGE_LINE_COLOR, 4)
-        painter.setPen(end_pen)
-        painter.drawLine(
-            QPointF(self.length_px / 2.0 - 6.0, -self.width_px / 2.0 + 8.0),
-            QPointF(self.length_px / 2.0 - 6.0, self.width_px / 2.0 - 8.0),
-        )
+        if self.show_end_bar:
+            end_pen = QPen(EDGE_LINE_COLOR, 4)
+            painter.setPen(end_pen)
+            painter.drawLine(
+                QPointF(self.length_px / 2.0 - 6.0, -self.width_px / 2.0 + 8.0),
+                QPointF(self.length_px / 2.0 - 6.0, self.width_px / 2.0 - 8.0),
+            )
 
         if self.isSelected():
             selection_pen = QPen(SELECTION_COLOR, SELECTION_LINE_WIDTH_PX)
@@ -540,6 +567,7 @@ class RoadEndItem(TrackItem):
                 "length_m": self.length_m,
                 "width_m": self.width_m,
                 "guide_line": self.guide_dict(),
+                "road_markings": self.road_marking_dict(),
             }
         )
         return data
@@ -559,6 +587,7 @@ class RoadEndItem(TrackItem):
         )
         item.setRotation(float(data.get("rotation_deg", 0.0)))
         item.load_guide_dict(data.get("guide_line"))
+        item.load_road_marking_dict(data.get("road_markings"))
         return item
 
     def selection_text(self) -> str:
@@ -583,6 +612,9 @@ class TJunctionItem(TrackItem):
         self.width_m = float(width_m)
 
     def supports_guide_line(self) -> bool:
+        return True
+
+    def supports_road_markings(self) -> bool:
         return True
 
     @property
@@ -615,23 +647,24 @@ class TJunctionItem(TrackItem):
         edge_pen = QPen(EDGE_LINE_COLOR, EDGE_LINE_WIDTH_PX)
         painter.setPen(edge_pen)
 
-        # Horizontal top edge remains continuous.
-        painter.drawLine(QPointF(-self.arm_px, -inset_y), QPointF(self.arm_px, -inset_y))
+        # Edge A: upper horizontal edge + left stem side.
+        if self.show_edge_a:
+            painter.drawLine(QPointF(-self.arm_px, -inset_y), QPointF(self.arm_px, -inset_y))
+            painter.drawLine(QPointF(-inset_x, half_w), QPointF(-inset_x, self.arm_px))
 
-        # Bottom edge is broken where the stem opens.
-        painter.drawLine(QPointF(-self.arm_px, inset_y), QPointF(-half_w, inset_y))
-        painter.drawLine(QPointF(half_w, inset_y), QPointF(self.arm_px, inset_y))
-
-        # Stem side edges.
-        painter.drawLine(QPointF(-inset_x, half_w), QPointF(-inset_x, self.arm_px))
-        painter.drawLine(QPointF(inset_x, half_w), QPointF(inset_x, self.arm_px))
+        # Edge B: lower horizontal pieces + right stem side.
+        if self.show_edge_b:
+            painter.drawLine(QPointF(-self.arm_px, inset_y), QPointF(-half_w, inset_y))
+            painter.drawLine(QPointF(half_w, inset_y), QPointF(self.arm_px, inset_y))
+            painter.drawLine(QPointF(inset_x, half_w), QPointF(inset_x, self.arm_px))
 
         center_pen = QPen(CENTER_LINE_COLOR, CENTER_LINE_WIDTH_PX, Qt.PenStyle.DashLine)
         painter.setPen(center_pen)
-        # Stop center markings at the central junction area.
-        painter.drawLine(QPointF(-self.arm_px, 0.0), QPointF(-half_w, 0.0))
-        painter.drawLine(QPointF(half_w, 0.0), QPointF(self.arm_px, 0.0))
-        painter.drawLine(QPointF(0.0, half_w), QPointF(0.0, self.arm_px))
+        if self.show_center_line:
+            # Stop center markings at the central junction area.
+            painter.drawLine(QPointF(-self.arm_px, 0.0), QPointF(-half_w, 0.0))
+            painter.drawLine(QPointF(half_w, 0.0), QPointF(self.arm_px, 0.0))
+            painter.drawLine(QPointF(0.0, half_w), QPointF(0.0, self.arm_px))
 
         # Optional lane-following guide.  The horizontal guide continues
         # through the junction; the stem guide uses the corresponding lateral
@@ -671,6 +704,7 @@ class TJunctionItem(TrackItem):
                 "arm_length_m": self.arm_length_m,
                 "width_m": self.width_m,
                 "guide_line": self.guide_dict(),
+                "road_markings": self.road_marking_dict(),
             }
         )
         return data
@@ -685,6 +719,7 @@ class TJunctionItem(TrackItem):
         item.setPos(world_to_scene(float(data.get("x", 0.0)), float(data.get("y", 0.0))))
         item.setRotation(float(data.get("rotation_deg", 0.0)))
         item.load_guide_dict(data.get("guide_line"))
+        item.load_road_marking_dict(data.get("road_markings"))
         return item
 
     def selection_text(self) -> str:
@@ -709,6 +744,9 @@ class CrossIntersectionItem(TrackItem):
         self.width_m = float(width_m)
 
     def supports_guide_line(self) -> bool:
+        return True
+
+    def supports_road_markings(self) -> bool:
         return True
 
     @property
@@ -740,25 +778,28 @@ class CrossIntersectionItem(TrackItem):
         edge_pen = QPen(EDGE_LINE_COLOR, EDGE_LINE_WIDTH_PX)
         painter.setPen(edge_pen)
 
-        # Horizontal road edge segments, leaving openings for vertical road.
-        painter.drawLine(QPointF(-self.arm_px, -edge), QPointF(-half_w, -edge))
-        painter.drawLine(QPointF(half_w, -edge), QPointF(self.arm_px, -edge))
-        painter.drawLine(QPointF(-self.arm_px, edge), QPointF(-half_w, edge))
-        painter.drawLine(QPointF(half_w, edge), QPointF(self.arm_px, edge))
+        # Edge A: upper horizontal and left vertical boundaries.
+        if self.show_edge_a:
+            painter.drawLine(QPointF(-self.arm_px, -edge), QPointF(-half_w, -edge))
+            painter.drawLine(QPointF(half_w, -edge), QPointF(self.arm_px, -edge))
+            painter.drawLine(QPointF(-edge, -self.arm_px), QPointF(-edge, -half_w))
+            painter.drawLine(QPointF(-edge, half_w), QPointF(-edge, self.arm_px))
 
-        # Vertical road edge segments, leaving openings for horizontal road.
-        painter.drawLine(QPointF(-edge, -self.arm_px), QPointF(-edge, -half_w))
-        painter.drawLine(QPointF(-edge, half_w), QPointF(-edge, self.arm_px))
-        painter.drawLine(QPointF(edge, -self.arm_px), QPointF(edge, -half_w))
-        painter.drawLine(QPointF(edge, half_w), QPointF(edge, self.arm_px))
+        # Edge B: lower horizontal and right vertical boundaries.
+        if self.show_edge_b:
+            painter.drawLine(QPointF(-self.arm_px, edge), QPointF(-half_w, edge))
+            painter.drawLine(QPointF(half_w, edge), QPointF(self.arm_px, edge))
+            painter.drawLine(QPointF(edge, -self.arm_px), QPointF(edge, -half_w))
+            painter.drawLine(QPointF(edge, half_w), QPointF(edge, self.arm_px))
 
         center_pen = QPen(CENTER_LINE_COLOR, CENTER_LINE_WIDTH_PX, Qt.PenStyle.DashLine)
         painter.setPen(center_pen)
-        # Four separate arm markings; the intersection center stays clear.
-        painter.drawLine(QPointF(-self.arm_px, 0.0), QPointF(-half_w, 0.0))
-        painter.drawLine(QPointF(half_w, 0.0), QPointF(self.arm_px, 0.0))
-        painter.drawLine(QPointF(0.0, -self.arm_px), QPointF(0.0, -half_w))
-        painter.drawLine(QPointF(0.0, half_w), QPointF(0.0, self.arm_px))
+        if self.show_center_line:
+            # Four separate arm markings; the intersection center stays clear.
+            painter.drawLine(QPointF(-self.arm_px, 0.0), QPointF(-half_w, 0.0))
+            painter.drawLine(QPointF(half_w, 0.0), QPointF(self.arm_px, 0.0))
+            painter.drawLine(QPointF(0.0, -self.arm_px), QPointF(0.0, -half_w))
+            painter.drawLine(QPointF(0.0, half_w), QPointF(0.0, self.arm_px))
 
         # Optional guide lines across both straight approaches of the
         # intersection.  They remain editable with the same left/center/right
@@ -799,6 +840,7 @@ class CrossIntersectionItem(TrackItem):
                 "arm_length_m": self.arm_length_m,
                 "width_m": self.width_m,
                 "guide_line": self.guide_dict(),
+                "road_markings": self.road_marking_dict(),
             }
         )
         return data
@@ -813,6 +855,7 @@ class CrossIntersectionItem(TrackItem):
         item.setPos(world_to_scene(float(data.get("x", 0.0)), float(data.get("y", 0.0))))
         item.setRotation(float(data.get("rotation_deg", 0.0)))
         item.load_guide_dict(data.get("guide_line"))
+        item.load_road_marking_dict(data.get("road_markings"))
         return item
 
     def selection_text(self) -> str:
@@ -820,4 +863,105 @@ class CrossIntersectionItem(TrackItem):
             super().selection_text()
             + f"\nArm length: {self.arm_length_m:.1f} m"
             + f"\nWidth: {self.width_m:.1f} m"
+        )
+
+
+class MedianWallItem(TrackItem):
+    """Straight concrete median/barrier that roads can snap flush against."""
+
+    TYPE_NAME = "median_wall"
+    DISPLAY_NAME = "Median Wall"
+
+    def __init__(
+        self,
+        length_m: float = DEFAULT_MEDIAN_WALL_LENGTH_M,
+        width_m: float = DEFAULT_MEDIAN_WALL_WIDTH_M,
+        height_m: float = DEFAULT_MEDIAN_WALL_HEIGHT_M,
+        object_id: str | None = None,
+    ):
+        super().__init__(object_id=object_id)
+        self.length_m = max(0.5, float(length_m))
+        self.width_m = max(0.05, float(width_m))
+        self.height_m = max(0.05, float(height_m))
+        self.setZValue(18)
+
+    @property
+    def length_px(self) -> float:
+        return self.length_m * PIXELS_PER_METER
+
+    @property
+    def width_px(self) -> float:
+        return self.width_m * PIXELS_PER_METER
+
+    def boundingRect(self) -> QRectF:
+        margin = 6.0
+        return QRectF(
+            -self.length_px / 2.0 - margin,
+            -self.width_px / 2.0 - margin,
+            self.length_px + margin * 2.0,
+            self.width_px + margin * 2.0,
+        )
+
+    def paint(self, painter: QPainter, option, widget=None):
+        rect = QRectF(
+            -self.length_px / 2.0,
+            -self.width_px / 2.0,
+            self.length_px,
+            self.width_px,
+        )
+        painter.setPen(QPen(QColor(120, 116, 110), 1.2))
+        painter.setBrush(MEDIAN_WALL_COLOR)
+        painter.drawRect(rect)
+
+        # A narrow highlight makes the barrier readable at low zoom.
+        highlight = QPen(QColor(215, 210, 200), 1.0)
+        highlight.setCosmetic(True)
+        painter.setPen(highlight)
+        painter.drawLine(
+            QPointF(-self.length_px / 2.0, 0.0),
+            QPointF(self.length_px / 2.0, 0.0),
+        )
+
+        if self.isSelected():
+            selection_pen = QPen(SELECTION_COLOR, SELECTION_LINE_WIDTH_PX)
+            selection_pen.setCosmetic(True)
+            painter.setPen(selection_pen)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawRect(rect)
+
+    def to_dict(self) -> dict:
+        data = self.base_dict()
+        data.update(
+            {
+                "length_m": float(self.length_m),
+                "width_m": float(self.width_m),
+                "height_m": float(self.height_m),
+            }
+        )
+        return data
+
+    @classmethod
+    def from_dict(cls, data: dict):
+        item = cls(
+            length_m=float(data.get("length_m", DEFAULT_MEDIAN_WALL_LENGTH_M)),
+            width_m=float(data.get("width_m", DEFAULT_MEDIAN_WALL_WIDTH_M)),
+            height_m=float(data.get("height_m", DEFAULT_MEDIAN_WALL_HEIGHT_M)),
+            object_id=data.get("id"),
+        )
+        item.setPos(
+            world_to_scene(
+                float(data.get("x", 0.0)),
+                float(data.get("y", 0.0)),
+            )
+        )
+        item.setRotation(float(data.get("rotation_deg", 0.0)))
+        return item
+
+    def selection_text(self) -> str:
+        return (
+            super().selection_text()
+            + f"\nLength: {self.length_m:.1f} m"
+            + f"\nWidth: {self.width_m:.2f} m"
+            + f"\nHeight: {self.height_m:.2f} m"
+            + "\nRoad-edge snap: Enabled"
         )

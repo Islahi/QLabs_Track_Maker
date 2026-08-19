@@ -85,6 +85,13 @@ def make_tool_icon(kind: str, size: int = 30) -> QIcon:
         p.setPen(QPen(ROAD_EDGE, 2.5))
         p.drawLine(QPointF(s - 8, 6), QPointF(s - 8, s - 6))
 
+    elif kind == "wall":
+        p.setPen(QPen(QColor(205, 200, 190), 1.2))
+        p.setBrush(QColor(155, 150, 142))
+        p.drawRect(QRectF(4, cy - 4, s - 8, 8))
+        p.setPen(QPen(QColor(235, 232, 225), 1.0))
+        p.drawLine(QPointF(5, cy - 1), QPointF(s - 5, cy - 1))
+
     # ------------------------------------------------------------
     # Traffic / environment
     # ------------------------------------------------------------

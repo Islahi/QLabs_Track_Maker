@@ -180,3 +180,21 @@ Intersection** items as well as normal roads and curves. The same guide controls
 (position, custom offset, color/RGB, width, solid/dashed style, and project-scale
 width) are available in the inspector, saved in project JSON, drawn in the
 editor, and exported as QLabs spline lines.
+
+## Open Road width / spline calibration
+
+- Open Road now defaults spline roads, markings, and guide lines to **Z = 1.20 m**.
+- New Open Road road components default to **8.4 m** wide, matching the
+  user-validated QLabs comparison for one native three-lane carriageway.
+  Existing saved roads keep their stored width and can be changed from
+  Properties.
+- The editor Open Road visual reference now uses **8.4 m per carriageway**
+  (**2.8 m per displayed lane**) and a **0.6 m median/barrier band**, for an
+  overall visual width of **17.4 m**. These are visual calibration values from
+  the QLabs comparison, not surveyed engineering dimensions.
+- Road markings are independently switchable in the **ROAD MARKINGS** inspector:
+  Edge A, Center line, Edge B, and the Road End bar. Hidden markings are also
+  omitted from the generated QLabs setup script.
+- A **Median / Barrier Wall** tool is available in the ROAD toolbar. It exports
+  as a static collision-enabled concrete BasicShape and straight roads/road ends
+  can snap flush to either side of it while endpoint snapping is enabled.

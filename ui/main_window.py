@@ -46,6 +46,7 @@ from config import (
     QCAR_CAMERA_FIRST_PERSON,
     OPEN_ROAD_REFERENCE_LANES_PER_SIDE,
     OPEN_ROAD_REFERENCE_LANE_WIDTH_M,
+    OPEN_ROAD_REFERENCE_CARRIAGEWAY_WIDTH_M,
     OPEN_ROAD_REFERENCE_SEPARATOR_WIDTH_M,
     OPEN_ROAD_REFERENCE_TOTAL_WIDTH_M,
     CROSSWALK_QLABS_BASE_SCALE,
@@ -93,6 +94,7 @@ from workspace.profiles import (
     workspace_mode_profile,
     workspace_mode_label,
     workspace_mode_default_spline_z,
+    workspace_mode_default_road_width,
 )
 from export.qlabs_exporter import build_qlabs_setup_source
 from core.traffic_sign_catalog import DEFAULT_TRAFFIC_SIGN_KEY, TRAFFIC_SIGN_CATALOG
@@ -104,6 +106,7 @@ from items.roads import (
     TJunctionItem,
     CrossIntersectionItem,
     RoadEndItem,
+    MedianWallItem,
 )
 from items.vehicles import QCar2StartItem
 from items.actors import (
@@ -153,6 +156,7 @@ class TrackEditorWindow(QMainWindow):
         self.rotation_step_deg = ROTATION_STEP_DEG
         self._property_refreshing = False
         self._guide_refreshing = False
+        self._marking_refreshing = False
 
         # Project scale affects the future QLabs export/effective dimensions.
         # The editor canvas itself remains in full-scale design meters.
@@ -350,9 +354,10 @@ class TrackEditorWindow(QMainWindow):
         self.prop_y = self._make_spinbox(-10000.0, 10000.0, 1.0, 1, " m")
         self.prop_rotation = self._make_spinbox(0.0, 359.9, 1.0, 1, "°")
         self.prop_length = self._make_spinbox(1.0, 1000.0, 1.0, 1, " m")
-        self.prop_width = self._make_spinbox(1.0, 50.0, 0.5, 1, " m")
+        self.prop_width = self._make_spinbox(0.05, 50.0, 0.05, 2, " m")
         self.prop_radius = self._make_spinbox(1.0, 1000.0, 1.0, 1, " m")
         self.prop_arm = self._make_spinbox(2.0, 1000.0, 1.0, 1, " m")
+        self.prop_height = self._make_spinbox(0.05, 20.0, 0.05, 2, " m")
 
         self.properties_form.addRow("X", self.prop_x)
         self.properties_form.addRow("Y", self.prop_y)
@@ -361,6 +366,7 @@ class TrackEditorWindow(QMainWindow):
         self.properties_form.addRow("Width", self.prop_width)
         self.properties_form.addRow("Radius", self.prop_radius)
         self.properties_form.addRow("Arm length", self.prop_arm)
+        self.properties_form.addRow("Height", self.prop_height)
 
         self.prop_x.valueChanged.connect(self.apply_position_properties)
         self.prop_y.valueChanged.connect(self.apply_position_properties)
@@ -369,6 +375,7 @@ class TrackEditorWindow(QMainWindow):
         self.prop_width.valueChanged.connect(self.apply_width_property)
         self.prop_radius.valueChanged.connect(self.apply_radius_property)
         self.prop_arm.valueChanged.connect(self.apply_arm_property)
+        self.prop_height.valueChanged.connect(self.apply_height_property)
 
         # Effective QLabs dimensions are read-only and derived from project scale.
         self.prop_effective = QLabel("")
@@ -379,6 +386,39 @@ class TrackEditorWindow(QMainWindow):
         self.properties_form.addRow("QLabs effective", self.prop_effective)
 
         inspector_layout.addWidget(self.properties_group)
+
+        # --------------------------------------------------------
+        # Road marking visibility
+        # --------------------------------------------------------
+        self.markings_group = QGroupBox("ROAD MARKINGS")
+        markings_form = QFormLayout(self.markings_group)
+
+        self.prop_marking_edge_a = QCheckBox("Show")
+        self.prop_marking_center = QCheckBox("Show")
+        self.prop_marking_edge_b = QCheckBox("Show")
+        self.prop_marking_end_bar = QCheckBox("Show")
+
+        markings_form.addRow("Edge A", self.prop_marking_edge_a)
+        markings_form.addRow("Center line", self.prop_marking_center)
+        markings_form.addRow("Edge B", self.prop_marking_edge_b)
+        markings_form.addRow("Road-end bar", self.prop_marking_end_bar)
+
+        markings_note = QLabel(
+            "Turn off individual spline markings. Edge A/B correspond to the "
+            "two road boundaries; this is useful when a road is placed flush "
+            "against a median wall."
+        )
+        markings_note.setWordWrap(True)
+        markings_note.setStyleSheet("color: #aeb6bf; font-size: 11px;")
+        markings_form.addRow(markings_note)
+
+        self.prop_marking_edge_a.toggled.connect(self.apply_road_marking_properties)
+        self.prop_marking_center.toggled.connect(self.apply_road_marking_properties)
+        self.prop_marking_edge_b.toggled.connect(self.apply_road_marking_properties)
+        self.prop_marking_end_bar.toggled.connect(self.apply_road_marking_properties)
+
+        self.markings_group.setVisible(False)
+        inspector_layout.addWidget(self.markings_group)
 
         # --------------------------------------------------------
         # QCar2 camera
@@ -791,7 +831,7 @@ class TrackEditorWindow(QMainWindow):
         bottom = QHBoxLayout()
         self.cursor_label = QLabel("Cursor: X 0.0 m | Y 0.0 m")
         self.zoom_label = QLabel("Zoom: 100%")
-        self.snap_status_label = QLabel("Endpoint snap: ON")
+        self.snap_status_label = QLabel("Endpoint/wall snap: ON")
         self.scale_status_label = QLabel("Scale: 1:1")
         bottom.addWidget(self.cursor_label)
         bottom.addStretch(1)
@@ -1060,23 +1100,42 @@ class TrackEditorWindow(QMainWindow):
         self.update_selection_info()
         self._commit_undo_transaction()
 
+    def _workspace_new_road_width_m(self) -> float:
+        """Width assigned to newly created road components in this workspace."""
+        return workspace_mode_default_road_width(self.workspace_mode)
+
     def add_straight_road(self):
-        self._add_item_at_view_center(StraightRoadItem())
+        self._add_item_at_view_center(
+            StraightRoadItem(width_m=self._workspace_new_road_width_m())
+        )
 
     def add_curve_45(self):
-        self._add_item_at_view_center(Curve45RoadItem())
+        self._add_item_at_view_center(
+            Curve45RoadItem(width_m=self._workspace_new_road_width_m())
+        )
 
     def add_curve_90(self):
-        self._add_item_at_view_center(Curve90RoadItem())
+        self._add_item_at_view_center(
+            Curve90RoadItem(width_m=self._workspace_new_road_width_m())
+        )
 
     def add_t_junction(self):
-        self._add_item_at_view_center(TJunctionItem())
+        self._add_item_at_view_center(
+            TJunctionItem(width_m=self._workspace_new_road_width_m())
+        )
 
     def add_cross_intersection(self):
-        self._add_item_at_view_center(CrossIntersectionItem())
+        self._add_item_at_view_center(
+            CrossIntersectionItem(width_m=self._workspace_new_road_width_m())
+        )
 
     def add_road_end(self):
-        self._add_item_at_view_center(RoadEndItem())
+        self._add_item_at_view_center(
+            RoadEndItem(width_m=self._workspace_new_road_width_m())
+        )
+
+    def add_median_wall(self):
+        self._add_item_at_view_center(MedianWallItem())
 
     def add_traffic_light(self):
         self._add_item_at_view_center(TrafficLightItem())
@@ -1612,9 +1671,9 @@ class TrackEditorWindow(QMainWindow):
             or WORKSPACE_CUSTOM
         )
 
-        # Each native workspace gets a conservative spline height. Outdoor
-        # workspaces use 1 m by default so QLabs spline roads/guide lines are
-        # not buried below the native road mesh. The value remains editable.
+        # Each native workspace gets a tested/default spline height so QLabs
+        # spline roads/guide lines are not buried below the native road mesh.
+        # Open Road uses 1.2 m. The value remains editable.
         self.workspace_spline_z_m = workspace_mode_default_spline_z(
             self.workspace_mode
         )
@@ -1628,6 +1687,7 @@ class TrackEditorWindow(QMainWindow):
         # workspace, without automatically enabling the cover itself.
         self._sync_workspace_platform_profile_to_mode()
         self._apply_workspace_mode(fit_reference=True)
+        self._refresh_scale_ui()
         self._commit_undo_transaction()
 
     def workspace_spline_z_changed(self, *args):
@@ -1901,7 +1961,9 @@ class TrackEditorWindow(QMainWindow):
                 f"Visual road width ≈ {OPEN_ROAD_REFERENCE_TOTAL_WIDTH_M:.1f} m "
                 f"({OPEN_ROAD_REFERENCE_LANES_PER_SIDE} lanes each direction, "
                 f"{OPEN_ROAD_REFERENCE_LANE_WIDTH_M:.1f} m/lane + "
-                f"{OPEN_ROAD_REFERENCE_SEPARATOR_WIDTH_M:.1f} m separator)."
+                f"{OPEN_ROAD_REFERENCE_SEPARATOR_WIDTH_M:.1f} m separator). "
+                f"New road components default to one carriageway: "
+                f"{OPEN_ROAD_REFERENCE_CARRIAGEWAY_WIDTH_M:.1f} m."
                 + accuracy_text
                 + f" Source data: {self.open_road_reference_source}."
             )
@@ -2333,9 +2395,10 @@ class TrackEditorWindow(QMainWindow):
         self._refresh_scale_ui()
 
     def _refresh_scale_ui(self):
-        effective = DEFAULT_ROAD_WIDTH_M * self.project_scale_factor
+        design_width = workspace_mode_default_road_width(self.workspace_mode)
+        effective = design_width * self.project_scale_factor
         self.scale_preview_label.setText(
-            f"{DEFAULT_ROAD_WIDTH_M:.2f} m design road → {effective:.3f} m in QLabs"
+            f"{design_width:.2f} m workspace-default road → {effective:.3f} m in QLabs"
         )
         self.scale_status_label.setText(f"Scale: {self.project_scale_name}")
         self.update_selection_info()
@@ -2434,7 +2497,7 @@ class TrackEditorWindow(QMainWindow):
     def set_endpoint_snap_enabled(self, enabled: bool):
         self.scene.endpoint_snap_enabled = enabled
         self.snap_status_label.setText(
-            "Endpoint snap: ON" if enabled else "Endpoint snap: OFF"
+            "Endpoint/wall snap: ON" if enabled else "Endpoint/wall snap: OFF"
         )
 
     # ------------------------------------------------------------
@@ -2462,6 +2525,7 @@ class TrackEditorWindow(QMainWindow):
             self.prop_width,
             self.prop_radius,
             self.prop_arm,
+            self.prop_height,
         ):
             widget.blockSignals(blocked)
 
@@ -2477,6 +2541,7 @@ class TrackEditorWindow(QMainWindow):
             self._set_property_row_visible(self.prop_width, False)
             self._set_property_row_visible(self.prop_radius, False)
             self._set_property_row_visible(self.prop_arm, False)
+            self._set_property_row_visible(self.prop_height, False)
 
             if item is None:
                 self.prop_effective.setText("")
@@ -2487,7 +2552,15 @@ class TrackEditorWindow(QMainWindow):
             self.prop_y.setValue(y_m)
             self.prop_rotation.setValue(normalize_angle(item.rotation()))
 
-            if isinstance(item, (StraightRoadItem, RoadEndItem)):
+            if isinstance(item, MedianWallItem):
+                self._set_property_row_visible(self.prop_length, True)
+                self._set_property_row_visible(self.prop_width, True)
+                self._set_property_row_visible(self.prop_height, True)
+                self.prop_length.setValue(item.length_m)
+                self.prop_width.setValue(item.width_m)
+                self.prop_height.setValue(item.height_m)
+
+            elif isinstance(item, (StraightRoadItem, RoadEndItem)):
                 self._set_property_row_visible(self.prop_length, True)
                 self._set_property_row_visible(self.prop_width, True)
                 self.prop_length.setValue(item.length_m)
@@ -2509,6 +2582,52 @@ class TrackEditorWindow(QMainWindow):
         finally:
             self._block_property_signals(False)
             self._property_refreshing = False
+
+    def _refresh_road_markings_editor(self, item: TrackItem | None):
+        supported = item is not None and item.supports_road_markings()
+        self.markings_group.setVisible(supported)
+        if not supported:
+            return
+
+        self._marking_refreshing = True
+        widgets = (
+            self.prop_marking_edge_a,
+            self.prop_marking_center,
+            self.prop_marking_edge_b,
+            self.prop_marking_end_bar,
+        )
+        for widget in widgets:
+            widget.blockSignals(True)
+        try:
+            self.prop_marking_edge_a.setChecked(bool(item.show_edge_a))
+            self.prop_marking_center.setChecked(bool(item.show_center_line))
+            self.prop_marking_edge_b.setChecked(bool(item.show_edge_b))
+            self.prop_marking_end_bar.setChecked(bool(item.show_end_bar))
+            self.prop_marking_end_bar.setVisible(isinstance(item, RoadEndItem))
+            label = self.markings_group.layout().labelForField(self.prop_marking_end_bar)
+            if label is not None:
+                label.setVisible(isinstance(item, RoadEndItem))
+        finally:
+            for widget in widgets:
+                widget.blockSignals(False)
+            self._marking_refreshing = False
+
+    def apply_road_marking_properties(self):
+        if self._marking_refreshing:
+            return
+        item = self._single_selected_item()
+        if item is None or not item.supports_road_markings():
+            return
+
+        self._begin_undo_transaction("Change road markings")
+        item.show_edge_a = self.prop_marking_edge_a.isChecked()
+        item.show_center_line = self.prop_marking_center.isChecked()
+        item.show_edge_b = self.prop_marking_edge_b.isChecked()
+        item.show_end_bar = self.prop_marking_end_bar.isChecked()
+        item.update()
+        self.scene.update()
+        self.update_selection_info()
+        self._commit_undo_transaction()
 
     def _set_actor_row_visible(self, field, visible: bool):
         layout = self.actor_group.layout()
@@ -3199,6 +3318,8 @@ class TrackEditorWindow(QMainWindow):
             lines.append(f"Radius: {float(item.radius_m) * f:.3f} m")
         if hasattr(item, "arm_length_m"):
             lines.append(f"Arm: {float(item.arm_length_m) * f:.3f} m")
+        if isinstance(item, MedianWallItem):
+            lines.append(f"Height: {float(item.height_m) * f:.3f} m")
         if isinstance(item, QCar2StartItem):
             lines.append(f"QCar actor scale: {f:.3f}")
             lines.append(f"QLabs yaw: {-normalize_angle(item.rotation()):.1f}°")
@@ -3244,7 +3365,7 @@ class TrackEditorWindow(QMainWindow):
 
         # If a resized endpoint remains near another endpoint, settle it again.
         if self.scene.endpoint_snap_enabled:
-            snapped = self.scene.snap_item_position_to_endpoint(item, item.pos())
+            snapped = self.scene.snap_item_position(item, item.pos())
             if snapped != item.pos():
                 item.setPos(snapped)
 
@@ -3271,7 +3392,7 @@ class TrackEditorWindow(QMainWindow):
         self._begin_undo_transaction("Rotate item")
         item.setRotation(normalize_angle(value))
         if self.scene.endpoint_snap_enabled:
-            snapped = self.scene.snap_item_position_to_endpoint(item, item.pos())
+            snapped = self.scene.snap_item_position(item, item.pos())
             if snapped != item.pos():
                 item.setPos(snapped)
         self.scene.update()
@@ -3282,7 +3403,7 @@ class TrackEditorWindow(QMainWindow):
         if self._property_refreshing:
             return
         item = self._single_selected_item()
-        if not isinstance(item, (StraightRoadItem, RoadEndItem)):
+        if not isinstance(item, (StraightRoadItem, RoadEndItem, MedianWallItem)):
             return
         self._begin_undo_transaction("Resize road")
         item.prepareGeometryChange()
@@ -3299,7 +3420,8 @@ class TrackEditorWindow(QMainWindow):
 
         self._begin_undo_transaction("Change width")
         item.prepareGeometryChange()
-        item.width_m = max(1.0, float(value))
+        minimum_width = 0.05 if isinstance(item, MedianWallItem) else 1.0
+        item.width_m = max(minimum_width, float(value))
 
         # Curves require a positive inner radius.
         if isinstance(item, (Curve90RoadItem, Curve45RoadItem)):
@@ -3308,6 +3430,19 @@ class TrackEditorWindow(QMainWindow):
                 item.radius_m = minimum_radius
 
         self._geometry_property_changed(item)
+        self._commit_undo_transaction()
+
+    def apply_height_property(self, value: float):
+        if self._property_refreshing:
+            return
+        item = self._single_selected_item()
+        if not isinstance(item, MedianWallItem):
+            return
+        self._begin_undo_transaction("Change wall height")
+        item.height_m = max(0.05, float(value))
+        item.update()
+        self.scene.update()
+        self.update_selection_info()
         self._commit_undo_transaction()
 
     def apply_radius_property(self, value: float):
@@ -3351,6 +3486,7 @@ class TrackEditorWindow(QMainWindow):
             self._refresh_actor_editor(selected[0])
             self._refresh_experiment_editor(selected[0])
             self._refresh_guide_editor(selected[0])
+            self._refresh_road_markings_editor(selected[0])
         elif len(selected) > 1:
             self.selection_label.setText(f"{len(selected)} objects selected")
             self._refresh_property_editor(None)
@@ -3358,6 +3494,7 @@ class TrackEditorWindow(QMainWindow):
             self._refresh_actor_editor(None)
             self._refresh_experiment_editor(None)
             self._refresh_guide_editor(None)
+            self._refresh_road_markings_editor(None)
         else:
             self.selection_label.setText("None")
             self._refresh_property_editor(None)
@@ -3365,6 +3502,7 @@ class TrackEditorWindow(QMainWindow):
             self._refresh_actor_editor(None)
             self._refresh_experiment_editor(None)
             self._refresh_guide_editor(None)
+            self._refresh_road_markings_editor(None)
 
     def update_cursor_label(self, x_m: float, y_m: float):
         self.cursor_label.setText(f"Cursor: X {x_m:.1f} m | Y {y_m:.1f} m")

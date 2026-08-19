@@ -7,6 +7,7 @@ from items.roads import (
     TJunctionItem,
     CrossIntersectionItem,
     RoadEndItem,
+    MedianWallItem,
 )
 from items.vehicles import QCar2StartItem
 from items.actors import (
@@ -46,6 +47,7 @@ TRACK_ITEM_CLASSES = {
     TJunctionItem.TYPE_NAME: TJunctionItem,
     CrossIntersectionItem.TYPE_NAME: CrossIntersectionItem,
     RoadEndItem.TYPE_NAME: RoadEndItem,
+    MedianWallItem.TYPE_NAME: MedianWallItem,
     QCar2StartItem.TYPE_NAME: QCar2StartItem,
     TrafficLightItem.TYPE_NAME: TrafficLightItem,
     StopSignItem.TYPE_NAME: StopSignItem,

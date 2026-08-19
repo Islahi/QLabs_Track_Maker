@@ -67,6 +67,13 @@ class TrackItem(QGraphicsItem):
         self.guide_style = DEFAULT_GUIDE_STYLE
         self.guide_scale_width = True
 
+        # Optional road-marking visibility. Road items expose these through
+        # supports_road_markings(); other scene objects simply ignore them.
+        self.show_edge_a = True
+        self.show_center_line = True
+        self.show_edge_b = True
+        self.show_end_bar = True
+
     # ------------------------------------------------------------
     # Human-readable identifier label
     # ------------------------------------------------------------
@@ -107,6 +114,28 @@ class TrackItem(QGraphicsItem):
             -rect.width() / 2.0,
             self._identifier_label_y_px,
         )
+
+    # ------------------------------------------------------------
+    # Road-marking visibility API
+    # ------------------------------------------------------------
+
+    def supports_road_markings(self) -> bool:
+        return False
+
+    def road_marking_dict(self) -> dict:
+        return {
+            "edge_a": bool(self.show_edge_a),
+            "center": bool(self.show_center_line),
+            "edge_b": bool(self.show_edge_b),
+            "end_bar": bool(self.show_end_bar),
+        }
+
+    def load_road_marking_dict(self, data: dict | None):
+        data = data or {}
+        self.show_edge_a = bool(data.get("edge_a", True))
+        self.show_center_line = bool(data.get("center", True))
+        self.show_edge_b = bool(data.get("edge_b", True))
+        self.show_end_bar = bool(data.get("end_bar", True))
 
     # ------------------------------------------------------------
     # Lane-following guide API
@@ -294,8 +323,8 @@ class TrackItem(QGraphicsItem):
 
                 # Then allow endpoint snapping to override the origin grid.
                 scene = self.scene()
-                if scene is not None and hasattr(scene, "snap_item_position_to_endpoint"):
-                    proposed = scene.snap_item_position_to_endpoint(self, proposed)
+                if scene is not None and hasattr(scene, "snap_item_position"):
+                    proposed = scene.snap_item_position(self, proposed)
 
                 # The editable canvas is a fill/design boundary, not a hard
                 # movement boundary. Items remain freely draggable as in v1.0.1.
@@ -322,8 +351,8 @@ class TrackItem(QGraphicsItem):
         # current center intentionally. This makes a manually aligned piece
         # settle onto a nearby connection after the correct heading is chosen.
         scene = self.scene()
-        if scene is not None and hasattr(scene, "snap_item_position_to_endpoint"):
-            snapped = scene.snap_item_position_to_endpoint(self, self.pos())
+        if scene is not None and hasattr(scene, "snap_item_position"):
+            snapped = scene.snap_item_position(self, self.pos())
             if snapped != self.pos():
                 self.setPos(snapped)
             if hasattr(scene, "notify_selection_or_geometry_changed"):

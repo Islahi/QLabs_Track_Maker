@@ -405,6 +405,7 @@ class TopControlBar(QWidget):
         row.addWidget(self._icon_button("tjunction", "T-Junction", self.window.add_t_junction))
         row.addWidget(self._icon_button("intersection", "4-Way Intersection", self.window.add_cross_intersection))
         row.addWidget(self._icon_button("road_end", "Road End", self.window.add_road_end))
+        row.addWidget(self._icon_button("wall", "Median / Barrier Wall", self.window.add_median_wall))
 
         row.addWidget(self._separator())
         row.addWidget(self._category("TRAFFIC"))
@@ -475,7 +476,7 @@ class TopControlBar(QWidget):
 
         self.endpoint_snap_checkbox = self._icon_button(
             "snap",
-            f"Endpoint snapping ({ENDPOINT_SNAP_DISTANCE_M:g} m)",
+            f"Endpoint + median-wall snapping ({ENDPOINT_SNAP_DISTANCE_M:g} m)",
             self.window.set_endpoint_snap_enabled,
             checkable=True,
             checked=True,
