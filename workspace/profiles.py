@@ -5,6 +5,8 @@ workspace documentation.  The platform top-Z values are *editor defaults*, not
 Quanser-published workspace heights; users can change them from the toolbar.
 """
 
+from config import DEFAULT_ROAD_WIDTH_M, DEFAULT_SPLINE_Z_M
+
 WORKSPACE_PLATFORM_PROFILES = {
     "cityscape": {
         "label": "Cityscape",
@@ -15,8 +17,8 @@ WORKSPACE_PLATFORM_PROFILES = {
         "center_y_m": 0.0,
         "default_bottom_z_m": -5.0,
         "default_top_z_m": 100.0,
-        "default_spline_z_m": 1.0,
-        "default_road_width_m": 6.0,
+        "default_spline_z_m": DEFAULT_SPLINE_Z_M,
+        "default_road_width_m": DEFAULT_ROAD_WIDTH_M,
         "environment_support": "confirmed",
         "size_note": "Approx. 500 m × 500 m; origin centered in the world.",
     },
@@ -29,8 +31,8 @@ WORKSPACE_PLATFORM_PROFILES = {
         "center_y_m": 0.0,
         "default_bottom_z_m": -5.0,
         "default_top_z_m": 100.0,
-        "default_spline_z_m": 1.0,
-        "default_road_width_m": 6.0,
+        "default_spline_z_m": DEFAULT_SPLINE_Z_M,
+        "default_road_width_m": DEFAULT_ROAD_WIDTH_M,
         "environment_support": "unknown",
         "size_note": "500 m × 500 m; origin centered in the world.",
     },
@@ -43,8 +45,8 @@ WORKSPACE_PLATFORM_PROFILES = {
         "center_y_m": 0.0,
         "default_bottom_z_m": -5.0,
         "default_top_z_m": 100.0,
-        "default_spline_z_m": 1.0,
-        "default_road_width_m": 6.0,
+        "default_spline_z_m": DEFAULT_SPLINE_Z_M,
+        "default_road_width_m": DEFAULT_ROAD_WIDTH_M,
         "environment_support": "unknown",
         "size_note": "Approx. 500 m × 500 m; origin centered in the world.",
     },
@@ -57,8 +59,8 @@ WORKSPACE_PLATFORM_PROFILES = {
         "center_y_m": 0.0,
         "default_bottom_z_m": -5.0,
         "default_top_z_m": 100.0,
-        "default_spline_z_m": 1.0,
-        "default_road_width_m": 6.0,
+        "default_spline_z_m": DEFAULT_SPLINE_Z_M,
+        "default_road_width_m": DEFAULT_ROAD_WIDTH_M,
         "environment_support": "unknown",
         "size_note": "Approx. 500 m × 500 m; origin centered in the world.",
     },
@@ -76,9 +78,9 @@ WORKSPACE_PLATFORM_PROFILES = {
         "default_top_z_m": 250.0,
         # Native Open Road road mesh sits high enough that 1.0 m could be
         # hidden.  1.2 m is the tested default requested for custom splines.
-        "default_spline_z_m": 1.2,
+        "default_spline_z_m": DEFAULT_SPLINE_Z_M,
         # QLabs visual calibration: one native three-lane carriageway.
-        "default_road_width_m": 8.4,
+        "default_road_width_m": DEFAULT_ROAD_WIDTH_M,
         "environment_support": "confirmed",
         "size_note": "Approx. 10 km × 5 km; cover is centred on the editor canvas for custom-track placement.",
     },
@@ -91,8 +93,8 @@ WORKSPACE_PLATFORM_PROFILES = {
         "center_y_m": 0.0,
         "default_bottom_z_m": -2.0,
         "default_top_z_m": 1.0,
-        "default_spline_z_m": 0.05,
-        "default_road_width_m": 6.0,
+        "default_spline_z_m": DEFAULT_SPLINE_Z_M,
+        "default_road_width_m": DEFAULT_ROAD_WIDTH_M,
         "environment_support": "unknown",
         "size_note": "20,000 m × 20,000 m; origin centered in the world.",
     },
@@ -105,8 +107,8 @@ WORKSPACE_PLATFORM_PROFILES = {
         "center_y_m": 0.0,
         "default_bottom_z_m": -1.0,
         "default_top_z_m": 3.0,
-        "default_spline_z_m": 0.10,
-        "default_road_width_m": 6.0,
+        "default_spline_z_m": DEFAULT_SPLINE_Z_M,
+        "default_road_width_m": DEFAULT_ROAD_WIDTH_M,
         "environment_support": "indoor",
         "size_note": "15 m × 14 m indoor room; ceiling is 2.5 m.",
     },
@@ -119,8 +121,8 @@ WORKSPACE_PLATFORM_PROFILES = {
         "center_y_m": 0.0,
         "default_bottom_z_m": -1.0,
         "default_top_z_m": 7.0,
-        "default_spline_z_m": 0.10,
-        "default_road_width_m": 6.0,
+        "default_spline_z_m": DEFAULT_SPLINE_Z_M,
+        "default_road_width_m": DEFAULT_ROAD_WIDTH_M,
         "environment_support": "indoor",
         "size_note": "50 m × 30 m indoor warehouse; ceiling is 5.5 m.",
     },
@@ -169,9 +171,9 @@ def workspace_mode_label(mode: str) -> str:
 
 def workspace_mode_default_spline_z(mode: str) -> float:
     """Safe default Z for spline roads/markings on the native workspace."""
-    return float(workspace_mode_profile(mode).get("default_spline_z_m", 0.05))
+    return float(workspace_mode_profile(mode).get("default_spline_z_m", DEFAULT_SPLINE_Z_M))
 
 
 def workspace_mode_default_road_width(mode: str) -> float:
     """Default design road width for newly created components in a workspace."""
-    return float(workspace_mode_profile(mode).get("default_road_width_m", 6.0))
+    return float(workspace_mode_profile(mode).get("default_road_width_m", DEFAULT_ROAD_WIDTH_M))

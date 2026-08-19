@@ -86,32 +86,25 @@ class StraightRoadItem(TrackItem):
         # ========================================================
         # White edge lines
         # ========================================================
-        edge_pen = QPen(EDGE_LINE_COLOR, EDGE_LINE_WIDTH_PX)
-        painter.setPen(edge_pen)
-
         if self.show_edge_a:
+            painter.setPen(self.road_marking_pen("edge_a", EDGE_LINE_WIDTH_PX))
             painter.drawLine(
                 QPointF(-self.length_px / 2.0, -self.width_px / 2.0 + EDGE_LINE_INSET_PX),
                 QPointF(self.length_px / 2.0, -self.width_px / 2.0 + EDGE_LINE_INSET_PX),
             )
 
         if self.show_edge_b:
+            painter.setPen(self.road_marking_pen("edge_b", EDGE_LINE_WIDTH_PX))
             painter.drawLine(
                 QPointF(-self.length_px / 2.0, self.width_px / 2.0 - EDGE_LINE_INSET_PX),
                 QPointF(self.length_px / 2.0, self.width_px / 2.0 - EDGE_LINE_INSET_PX),
             )
 
         # ========================================================
-        # Yellow center line
+        # Configurable center line
         # ========================================================
-        center_pen = QPen(
-            CENTER_LINE_COLOR,
-            CENTER_LINE_WIDTH_PX,
-            Qt.PenStyle.DashLine,
-        )
-        painter.setPen(center_pen)
-
         if self.show_center_line:
+            painter.setPen(self.road_marking_pen("center", CENTER_LINE_WIDTH_PX))
             painter.drawLine(
                 QPointF(-self.length_px / 2.0, 0),
                 QPointF(self.length_px / 2.0, 0),
@@ -292,23 +285,18 @@ class Curve90RoadItem(TrackItem):
         outer_radius = self.radius_px + edge_offset
         inner_radius = max(2.0, self.radius_px - edge_offset)
 
-        edge_pen = QPen(EDGE_LINE_COLOR, EDGE_LINE_WIDTH_PX)
-        painter.setPen(edge_pen)
         if self.show_edge_a:
+            painter.setPen(self.road_marking_pen("edge_a", EDGE_LINE_WIDTH_PX))
             painter.drawPath(self._arc_path_for_radius(outer_radius))
         if self.show_edge_b:
+            painter.setPen(self.road_marking_pen("edge_b", EDGE_LINE_WIDTH_PX))
             painter.drawPath(self._arc_path_for_radius(inner_radius))
 
         # ========================================================
-        # Yellow dashed center line
+        # Configurable center line
         # ========================================================
-        center_pen = QPen(
-            CENTER_LINE_COLOR,
-            CENTER_LINE_WIDTH_PX,
-            Qt.PenStyle.DashLine,
-        )
-        painter.setPen(center_pen)
         if self.show_center_line:
+            painter.setPen(self.road_marking_pen("center", CENTER_LINE_WIDTH_PX))
             painter.drawPath(self.center_path())
 
         # ========================================================
@@ -500,26 +488,21 @@ class RoadEndItem(TrackItem):
         painter.setBrush(ROAD_COLOR)
         painter.drawRect(road_rect)
 
-        edge_pen = QPen(EDGE_LINE_COLOR, EDGE_LINE_WIDTH_PX)
-        painter.setPen(edge_pen)
         if self.show_edge_a:
+            painter.setPen(self.road_marking_pen("edge_a", EDGE_LINE_WIDTH_PX))
             painter.drawLine(
                 QPointF(-self.length_px / 2.0, -self.width_px / 2.0 + EDGE_LINE_INSET_PX),
                 QPointF(self.length_px / 2.0, -self.width_px / 2.0 + EDGE_LINE_INSET_PX),
             )
         if self.show_edge_b:
+            painter.setPen(self.road_marking_pen("edge_b", EDGE_LINE_WIDTH_PX))
             painter.drawLine(
                 QPointF(-self.length_px / 2.0, self.width_px / 2.0 - EDGE_LINE_INSET_PX),
                 QPointF(self.length_px / 2.0, self.width_px / 2.0 - EDGE_LINE_INSET_PX),
             )
 
-        center_pen = QPen(
-            CENTER_LINE_COLOR,
-            CENTER_LINE_WIDTH_PX,
-            Qt.PenStyle.DashLine,
-        )
-        painter.setPen(center_pen)
         if self.show_center_line:
+            painter.setPen(self.road_marking_pen("center", CENTER_LINE_WIDTH_PX))
             painter.drawLine(
                 QPointF(-self.length_px / 2.0, 0.0),
                 QPointF(self.length_px / 2.0 - 18.0, 0.0),
@@ -535,8 +518,7 @@ class RoadEndItem(TrackItem):
 
         # Closed road-end marking.
         if self.show_end_bar:
-            end_pen = QPen(EDGE_LINE_COLOR, 4)
-            painter.setPen(end_pen)
+            painter.setPen(self.road_marking_pen("end_bar", 4))
             painter.drawLine(
                 QPointF(self.length_px / 2.0 - 6.0, -self.width_px / 2.0 + 8.0),
                 QPointF(self.length_px / 2.0 - 6.0, self.width_px / 2.0 - 8.0),
@@ -644,23 +626,21 @@ class TJunctionItem(TrackItem):
         painter.setBrush(ROAD_COLOR)
         painter.drawPath(self.shape())
 
-        edge_pen = QPen(EDGE_LINE_COLOR, EDGE_LINE_WIDTH_PX)
-        painter.setPen(edge_pen)
-
         # Edge A: upper horizontal edge + left stem side.
         if self.show_edge_a:
+            painter.setPen(self.road_marking_pen("edge_a", EDGE_LINE_WIDTH_PX))
             painter.drawLine(QPointF(-self.arm_px, -inset_y), QPointF(self.arm_px, -inset_y))
             painter.drawLine(QPointF(-inset_x, half_w), QPointF(-inset_x, self.arm_px))
 
         # Edge B: lower horizontal pieces + right stem side.
         if self.show_edge_b:
+            painter.setPen(self.road_marking_pen("edge_b", EDGE_LINE_WIDTH_PX))
             painter.drawLine(QPointF(-self.arm_px, inset_y), QPointF(-half_w, inset_y))
             painter.drawLine(QPointF(half_w, inset_y), QPointF(self.arm_px, inset_y))
             painter.drawLine(QPointF(inset_x, half_w), QPointF(inset_x, self.arm_px))
 
-        center_pen = QPen(CENTER_LINE_COLOR, CENTER_LINE_WIDTH_PX, Qt.PenStyle.DashLine)
-        painter.setPen(center_pen)
         if self.show_center_line:
+            painter.setPen(self.road_marking_pen("center", CENTER_LINE_WIDTH_PX))
             # Stop center markings at the central junction area.
             painter.drawLine(QPointF(-self.arm_px, 0.0), QPointF(-half_w, 0.0))
             painter.drawLine(QPointF(half_w, 0.0), QPointF(self.arm_px, 0.0))
@@ -775,11 +755,9 @@ class CrossIntersectionItem(TrackItem):
         painter.setBrush(ROAD_COLOR)
         painter.drawPath(self.shape())
 
-        edge_pen = QPen(EDGE_LINE_COLOR, EDGE_LINE_WIDTH_PX)
-        painter.setPen(edge_pen)
-
         # Edge A: upper horizontal and left vertical boundaries.
         if self.show_edge_a:
+            painter.setPen(self.road_marking_pen("edge_a", EDGE_LINE_WIDTH_PX))
             painter.drawLine(QPointF(-self.arm_px, -edge), QPointF(-half_w, -edge))
             painter.drawLine(QPointF(half_w, -edge), QPointF(self.arm_px, -edge))
             painter.drawLine(QPointF(-edge, -self.arm_px), QPointF(-edge, -half_w))
@@ -787,14 +765,14 @@ class CrossIntersectionItem(TrackItem):
 
         # Edge B: lower horizontal and right vertical boundaries.
         if self.show_edge_b:
+            painter.setPen(self.road_marking_pen("edge_b", EDGE_LINE_WIDTH_PX))
             painter.drawLine(QPointF(-self.arm_px, edge), QPointF(-half_w, edge))
             painter.drawLine(QPointF(half_w, edge), QPointF(self.arm_px, edge))
             painter.drawLine(QPointF(edge, -self.arm_px), QPointF(edge, -half_w))
             painter.drawLine(QPointF(edge, half_w), QPointF(edge, self.arm_px))
 
-        center_pen = QPen(CENTER_LINE_COLOR, CENTER_LINE_WIDTH_PX, Qt.PenStyle.DashLine)
-        painter.setPen(center_pen)
         if self.show_center_line:
+            painter.setPen(self.road_marking_pen("center", CENTER_LINE_WIDTH_PX))
             # Four separate arm markings; the intersection center stays clear.
             painter.drawLine(QPointF(-self.arm_px, 0.0), QPointF(-half_w, 0.0))
             painter.drawLine(QPointF(half_w, 0.0), QPointF(self.arm_px, 0.0))

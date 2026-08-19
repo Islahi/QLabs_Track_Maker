@@ -18,6 +18,15 @@ from config import (
     CONNECTION_COLOR,
     CONNECTION_OUTLINE_COLOR,
     PIXELS_PER_METER,
+    ROAD_MARKING_COLORS,
+    DEFAULT_EDGE_A_MARKING_COLOR,
+    DEFAULT_EDGE_A_MARKING_STYLE,
+    DEFAULT_CENTER_MARKING_COLOR,
+    DEFAULT_CENTER_MARKING_STYLE,
+    DEFAULT_EDGE_B_MARKING_COLOR,
+    DEFAULT_EDGE_B_MARKING_STYLE,
+    DEFAULT_END_BAR_MARKING_COLOR,
+    DEFAULT_END_BAR_MARKING_STYLE,
 )
 from core.geometry import (
     make_object_id,
@@ -74,6 +83,15 @@ class TrackItem(QGraphicsItem):
         self.show_edge_b = True
         self.show_end_bar = True
 
+        self.edge_a_marking_color = DEFAULT_EDGE_A_MARKING_COLOR
+        self.edge_a_marking_style = DEFAULT_EDGE_A_MARKING_STYLE
+        self.center_marking_color = DEFAULT_CENTER_MARKING_COLOR
+        self.center_marking_style = DEFAULT_CENTER_MARKING_STYLE
+        self.edge_b_marking_color = DEFAULT_EDGE_B_MARKING_COLOR
+        self.edge_b_marking_style = DEFAULT_EDGE_B_MARKING_STYLE
+        self.end_bar_marking_color = DEFAULT_END_BAR_MARKING_COLOR
+        self.end_bar_marking_style = DEFAULT_END_BAR_MARKING_STYLE
+
     # ------------------------------------------------------------
     # Human-readable identifier label
     # ------------------------------------------------------------
@@ -125,9 +143,17 @@ class TrackItem(QGraphicsItem):
     def road_marking_dict(self) -> dict:
         return {
             "edge_a": bool(self.show_edge_a),
+            "edge_a_color": str(self.edge_a_marking_color),
+            "edge_a_style": str(self.edge_a_marking_style),
             "center": bool(self.show_center_line),
+            "center_color": str(self.center_marking_color),
+            "center_style": str(self.center_marking_style),
             "edge_b": bool(self.show_edge_b),
+            "edge_b_color": str(self.edge_b_marking_color),
+            "edge_b_style": str(self.edge_b_marking_style),
             "end_bar": bool(self.show_end_bar),
+            "end_bar_color": str(self.end_bar_marking_color),
+            "end_bar_style": str(self.end_bar_marking_style),
         }
 
     def load_road_marking_dict(self, data: dict | None):
@@ -136,6 +162,58 @@ class TrackItem(QGraphicsItem):
         self.show_center_line = bool(data.get("center", True))
         self.show_edge_b = bool(data.get("edge_b", True))
         self.show_end_bar = bool(data.get("end_bar", True))
+
+        self.edge_a_marking_color = str(
+            data.get("edge_a_color", DEFAULT_EDGE_A_MARKING_COLOR)
+        )
+        self.edge_a_marking_style = str(
+            data.get("edge_a_style", DEFAULT_EDGE_A_MARKING_STYLE)
+        )
+        self.center_marking_color = str(
+            data.get("center_color", DEFAULT_CENTER_MARKING_COLOR)
+        )
+        self.center_marking_style = str(
+            data.get("center_style", DEFAULT_CENTER_MARKING_STYLE)
+        )
+        self.edge_b_marking_color = str(
+            data.get("edge_b_color", DEFAULT_EDGE_B_MARKING_COLOR)
+        )
+        self.edge_b_marking_style = str(
+            data.get("edge_b_style", DEFAULT_EDGE_B_MARKING_STYLE)
+        )
+        self.end_bar_marking_color = str(
+            data.get("end_bar_color", DEFAULT_END_BAR_MARKING_COLOR)
+        )
+        self.end_bar_marking_style = str(
+            data.get("end_bar_style", DEFAULT_END_BAR_MARKING_STYLE)
+        )
+
+    def road_marking_pen(self, key: str, width_px: float) -> QPen:
+        """Return the editor pen for one configurable road marking."""
+        if key == "edge_a":
+            color_name = self.edge_a_marking_color
+            style_name = self.edge_a_marking_style
+        elif key == "center":
+            color_name = self.center_marking_color
+            style_name = self.center_marking_style
+        elif key == "edge_b":
+            color_name = self.edge_b_marking_color
+            style_name = self.edge_b_marking_style
+        else:
+            color_name = self.end_bar_marking_color
+            style_name = self.end_bar_marking_style
+
+        color = ROAD_MARKING_COLORS.get(
+            color_name, ROAD_MARKING_COLORS["white"]
+        )
+        style = (
+            Qt.PenStyle.DashLine
+            if style_name == "dashed"
+            else Qt.PenStyle.SolidLine
+        )
+        pen = QPen(color, float(width_px), style)
+        pen.setCapStyle(Qt.PenCapStyle.FlatCap)
+        return pen
 
     # ------------------------------------------------------------
     # Lane-following guide API

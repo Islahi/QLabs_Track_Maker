@@ -276,9 +276,8 @@ class TopControlBar(QWidget):
         )
         self.workspace_spline_z_spin.setToolTip(
             "Native-workspace Z height for exported spline roads and guide lines. "
-            "Outdoor workspaces default to 1.0 m so splines are not hidden below "
-            "the native road mesh. When Workspace box is enabled, the box Top Z "
-            "is used instead."
+            "Spline roads default to 1.20 m so they remain above native road surfaces. "
+            "When Workspace box is enabled, the box Top Z is used instead."
         )
         self.workspace_spline_z_spin.valueChanged.connect(
             self.window.workspace_spline_z_changed

@@ -198,3 +198,21 @@ editor, and exported as QLabs spline lines.
 - A **Median / Barrier Wall** tool is available in the ROAD toolbar. It exports
   as a static collision-enabled concrete BasicShape and straight roads/road ends
   can snap flush to either side of it while endpoint snapping is enabled.
+
+## Open Road overlay calibration and road markings
+
+This build keeps `DEFAULT_ROAD_WIDTH_M = 8.4` from the supplied configuration.
+The Open Road *reference overlay* is deliberately wider than a custom 8.4 m
+road: it is drawn as three 4.3 m lanes per carriageway plus an approximately
+0.5 m centre divider, for an estimated total two-direction reference width of
+26.3 m. The overlay remains editor-only and is never exported.
+
+Spline roads, road markings and lane-following guides default to `Z = 1.20 m`
+for every workspace unless a saved project overrides the value or a workspace
+cover box supplies its own top-Z surface.
+
+Select a road, curve, road end, T-junction or 4-way intersection to open the
+**ROAD MARKINGS** inspector. Edge A, Center line, Edge B (and the Road-end bar
+where applicable) can each be switched on/off and assigned one of the preset
+colors plus either **Solid** or **Dashed** style. The same settings are written
+to project JSON and reproduced by the QLabs exporter.

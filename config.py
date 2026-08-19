@@ -40,34 +40,36 @@ DEFAULT_CURVE_RADIUS_M = 10.0
 DEFAULT_JUNCTION_ARM_M = 12.0
 DEFAULT_ROAD_END_LENGTH_M = 8.0
 
+# Default height used for exported spline roads/markings/guides when a
+# workspace-specific saved value is not present.
+DEFAULT_SPLINE_Z_M = 1.20
+
 # Full-scale footprint used only for the editor QCar2 start marker.
 # The real QLabs QCar actor is uniformly scaled by the project scale.
 QCAR2_DESIGN_LENGTH_M = 4.6
 QCAR2_DESIGN_WIDTH_M = 1.9
 
-# Open Road visual-width calibration.
-# A direct QLabs comparison on 2026-08-19 showed that an 8.4 m custom spline
-# road is a useful visual match for ONE native three-lane Open Road
-# carriageway.  The editor reference therefore uses 8.4 m per carriageway
-# (2.8 m per displayed lane) and a 0.6 m median/barrier band.  These remain
-# visual calibration values rather than surveyed Quanser engineering data.
+# Open Road visual-width estimate/calibration.
+# The user's latest QLabs comparison indicates that the native overlay reads
+# closest in the editor at roughly 4.3 m per displayed lane, three lanes per
+# carriageway, with about a 0.5 m centre divider/barrier.
 OPEN_ROAD_REFERENCE_LANES_PER_SIDE = 3
-OPEN_ROAD_REFERENCE_CARRIAGEWAY_WIDTH_M = 8.4
-OPEN_ROAD_REFERENCE_LANE_WIDTH_M = (
-    OPEN_ROAD_REFERENCE_CARRIAGEWAY_WIDTH_M
-    / OPEN_ROAD_REFERENCE_LANES_PER_SIDE
+OPEN_ROAD_REFERENCE_LANE_WIDTH_M = 4.3
+OPEN_ROAD_REFERENCE_SEPARATOR_WIDTH_M = 0.5
+OPEN_ROAD_REFERENCE_CARRIAGEWAY_WIDTH_M = (
+    OPEN_ROAD_REFERENCE_LANES_PER_SIDE * OPEN_ROAD_REFERENCE_LANE_WIDTH_M
 )
-OPEN_ROAD_REFERENCE_SEPARATOR_WIDTH_M = 0.6
 OPEN_ROAD_REFERENCE_TOTAL_WIDTH_M = (
-    2.0 * OPEN_ROAD_REFERENCE_CARRIAGEWAY_WIDTH_M
+    2.0
+    * OPEN_ROAD_REFERENCE_LANES_PER_SIDE
+    * OPEN_ROAD_REFERENCE_LANE_WIDTH_M
     + OPEN_ROAD_REFERENCE_SEPARATOR_WIDTH_M
 )
 
-# Median-wall defaults.  The wall is an editor/exportable concrete barrier
-# used to reproduce the Open Road centre divider and can snap flush to a
-# straight road edge.
+# Median/barrier wall defaults. The wall is an editor/exportable static object
+# and straight roads can snap flush to either side of it.
 DEFAULT_MEDIAN_WALL_LENGTH_M = 20.0
-DEFAULT_MEDIAN_WALL_WIDTH_M = 0.6
+DEFAULT_MEDIAN_WALL_WIDTH_M = 0.5
 DEFAULT_MEDIAN_WALL_HEIGHT_M = 0.85
 MEDIAN_WALL_COLOR = QColor(172, 166, 154)
 WALL_SNAP_DISTANCE_M = 1.0
@@ -147,6 +149,35 @@ SELECTION_LINE_WIDTH_PX = 3
 
 # Same inset used by the working v0.1 straight-road rendering.
 EDGE_LINE_INSET_PX = 8.0
+
+# Per-road marking defaults. Each line can be enabled/disabled and can use its
+# own color and solid/dashed style in both the editor and QLabs export.
+DEFAULT_EDGE_A_MARKING_COLOR = "white"
+DEFAULT_EDGE_A_MARKING_STYLE = "solid"
+DEFAULT_CENTER_MARKING_COLOR = "yellow"
+DEFAULT_CENTER_MARKING_STYLE = "dashed"
+DEFAULT_EDGE_B_MARKING_COLOR = "white"
+DEFAULT_EDGE_B_MARKING_STYLE = "solid"
+DEFAULT_END_BAR_MARKING_COLOR = "white"
+DEFAULT_END_BAR_MARKING_STYLE = "solid"
+
+ROAD_MARKING_COLOR_RGB = {
+    "white": (240, 240, 240),
+    "yellow": (255, 215, 0),
+    "blue": (60, 160, 255),
+    "red": (255, 80, 80),
+    "black": (25, 25, 25),
+}
+
+ROAD_MARKING_COLORS = {
+    name: QColor(*rgb)
+    for name, rgb in ROAD_MARKING_COLOR_RGB.items()
+}
+
+ROAD_MARKING_STYLES = (
+    ("Solid", "solid"),
+    ("Dashed", "dashed"),
+)
 
 # Lane-following guide defaults. These are design/full-scale dimensions.
 DEFAULT_GUIDE_WIDTH_M = 0.10

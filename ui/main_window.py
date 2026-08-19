@@ -73,6 +73,8 @@ from config import (
     DEFAULT_SCENERY_FILL_DENSITY,
     DEFAULT_ROADSIDE_RESERVE_M,
     DEFAULT_BUILDING_ROAD_BAND_M,
+    ROAD_MARKING_COLOR_RGB,
+    ROAD_MARKING_STYLES,
 )
 from core.geometry import (
     normalize_angle,
@@ -388,34 +390,90 @@ class TrackEditorWindow(QMainWindow):
         inspector_layout.addWidget(self.properties_group)
 
         # --------------------------------------------------------
-        # Road marking visibility
+        # Road marking customization
         # --------------------------------------------------------
         self.markings_group = QGroupBox("ROAD MARKINGS")
         markings_form = QFormLayout(self.markings_group)
 
-        self.prop_marking_edge_a = QCheckBox("Show")
-        self.prop_marking_center = QCheckBox("Show")
-        self.prop_marking_edge_b = QCheckBox("Show")
-        self.prop_marking_end_bar = QCheckBox("Show")
+        def _make_marking_row():
+            row_widget = QWidget()
+            row_layout = QHBoxLayout(row_widget)
+            row_layout.setContentsMargins(0, 0, 0, 0)
+            row_layout.setSpacing(5)
 
-        markings_form.addRow("Edge A", self.prop_marking_edge_a)
-        markings_form.addRow("Center line", self.prop_marking_center)
-        markings_form.addRow("Edge B", self.prop_marking_edge_b)
-        markings_form.addRow("Road-end bar", self.prop_marking_end_bar)
+            enabled = QCheckBox("On")
+            color = QComboBox()
+            for color_name in ROAD_MARKING_COLOR_RGB:
+                color.addItem(color_name.title(), color_name)
+            color.setMinimumWidth(78)
+
+            style = QComboBox()
+            for label, value in ROAD_MARKING_STYLES:
+                style.addItem(label, value)
+            style.setMinimumWidth(72)
+
+            row_layout.addWidget(enabled)
+            row_layout.addWidget(color, 1)
+            row_layout.addWidget(style, 1)
+            return row_widget, enabled, color, style
+
+        (
+            self.prop_marking_edge_a_row,
+            self.prop_marking_edge_a,
+            self.prop_marking_edge_a_color,
+            self.prop_marking_edge_a_style,
+        ) = _make_marking_row()
+        (
+            self.prop_marking_center_row,
+            self.prop_marking_center,
+            self.prop_marking_center_color,
+            self.prop_marking_center_style,
+        ) = _make_marking_row()
+        (
+            self.prop_marking_edge_b_row,
+            self.prop_marking_edge_b,
+            self.prop_marking_edge_b_color,
+            self.prop_marking_edge_b_style,
+        ) = _make_marking_row()
+        (
+            self.prop_marking_end_bar_row,
+            self.prop_marking_end_bar,
+            self.prop_marking_end_bar_color,
+            self.prop_marking_end_bar_style,
+        ) = _make_marking_row()
+
+        markings_form.addRow("Edge A", self.prop_marking_edge_a_row)
+        markings_form.addRow("Center line", self.prop_marking_center_row)
+        markings_form.addRow("Edge B", self.prop_marking_edge_b_row)
+        markings_form.addRow("Road-end bar", self.prop_marking_end_bar_row)
 
         markings_note = QLabel(
-            "Turn off individual spline markings. Edge A/B correspond to the "
-            "two road boundaries; this is useful when a road is placed flush "
-            "against a median wall."
+            "Each road marking can be switched on/off and given its own color "
+            "and solid/dashed style. Edge A/B are the two road boundaries."
         )
         markings_note.setWordWrap(True)
         markings_note.setStyleSheet("color: #aeb6bf; font-size: 11px;")
         markings_form.addRow(markings_note)
 
-        self.prop_marking_edge_a.toggled.connect(self.apply_road_marking_properties)
-        self.prop_marking_center.toggled.connect(self.apply_road_marking_properties)
-        self.prop_marking_edge_b.toggled.connect(self.apply_road_marking_properties)
-        self.prop_marking_end_bar.toggled.connect(self.apply_road_marking_properties)
+        marking_editors = (
+            self.prop_marking_edge_a,
+            self.prop_marking_edge_a_color,
+            self.prop_marking_edge_a_style,
+            self.prop_marking_center,
+            self.prop_marking_center_color,
+            self.prop_marking_center_style,
+            self.prop_marking_edge_b,
+            self.prop_marking_edge_b_color,
+            self.prop_marking_edge_b_style,
+            self.prop_marking_end_bar,
+            self.prop_marking_end_bar_color,
+            self.prop_marking_end_bar_style,
+        )
+        for editor in marking_editors:
+            if isinstance(editor, QCheckBox):
+                editor.toggled.connect(self.apply_road_marking_properties)
+            else:
+                editor.currentIndexChanged.connect(self.apply_road_marking_properties)
 
         self.markings_group.setVisible(False)
         inspector_layout.addWidget(self.markings_group)
@@ -1962,8 +2020,10 @@ class TrackEditorWindow(QMainWindow):
                 f"({OPEN_ROAD_REFERENCE_LANES_PER_SIDE} lanes each direction, "
                 f"{OPEN_ROAD_REFERENCE_LANE_WIDTH_M:.1f} m/lane + "
                 f"{OPEN_ROAD_REFERENCE_SEPARATOR_WIDTH_M:.1f} m separator). "
-                f"New road components default to one carriageway: "
-                f"{OPEN_ROAD_REFERENCE_CARRIAGEWAY_WIDTH_M:.1f} m."
+                f"Reference carriageway width ≈ "
+                f"{OPEN_ROAD_REFERENCE_CARRIAGEWAY_WIDTH_M:.1f} m. "
+                f"New custom road components keep the configured default width: "
+                f"{DEFAULT_ROAD_WIDTH_M:.1f} m."
                 + accuracy_text
                 + f" Source data: {self.open_road_reference_source}."
             )
@@ -2592,27 +2652,55 @@ class TrackEditorWindow(QMainWindow):
         self._marking_refreshing = True
         widgets = (
             self.prop_marking_edge_a,
+            self.prop_marking_edge_a_color,
+            self.prop_marking_edge_a_style,
             self.prop_marking_center,
+            self.prop_marking_center_color,
+            self.prop_marking_center_style,
             self.prop_marking_edge_b,
+            self.prop_marking_edge_b_color,
+            self.prop_marking_edge_b_style,
             self.prop_marking_end_bar,
+            self.prop_marking_end_bar_color,
+            self.prop_marking_end_bar_style,
         )
         for widget in widgets:
             widget.blockSignals(True)
+
+        def _set_combo(combo, value):
+            index = combo.findData(value)
+            combo.setCurrentIndex(index if index >= 0 else 0)
+
         try:
             self.prop_marking_edge_a.setChecked(bool(item.show_edge_a))
+            _set_combo(self.prop_marking_edge_a_color, item.edge_a_marking_color)
+            _set_combo(self.prop_marking_edge_a_style, item.edge_a_marking_style)
+
             self.prop_marking_center.setChecked(bool(item.show_center_line))
+            _set_combo(self.prop_marking_center_color, item.center_marking_color)
+            _set_combo(self.prop_marking_center_style, item.center_marking_style)
+
             self.prop_marking_edge_b.setChecked(bool(item.show_edge_b))
+            _set_combo(self.prop_marking_edge_b_color, item.edge_b_marking_color)
+            _set_combo(self.prop_marking_edge_b_style, item.edge_b_marking_style)
+
             self.prop_marking_end_bar.setChecked(bool(item.show_end_bar))
-            self.prop_marking_end_bar.setVisible(isinstance(item, RoadEndItem))
-            label = self.markings_group.layout().labelForField(self.prop_marking_end_bar)
+            _set_combo(self.prop_marking_end_bar_color, item.end_bar_marking_color)
+            _set_combo(self.prop_marking_end_bar_style, item.end_bar_marking_style)
+
+            road_end = isinstance(item, RoadEndItem)
+            self.prop_marking_end_bar_row.setVisible(road_end)
+            label = self.markings_group.layout().labelForField(
+                self.prop_marking_end_bar_row
+            )
             if label is not None:
-                label.setVisible(isinstance(item, RoadEndItem))
+                label.setVisible(road_end)
         finally:
             for widget in widgets:
                 widget.blockSignals(False)
             self._marking_refreshing = False
 
-    def apply_road_marking_properties(self):
+    def apply_road_marking_properties(self, *args):
         if self._marking_refreshing:
             return
         item = self._single_selected_item()
@@ -2621,9 +2709,21 @@ class TrackEditorWindow(QMainWindow):
 
         self._begin_undo_transaction("Change road markings")
         item.show_edge_a = self.prop_marking_edge_a.isChecked()
+        item.edge_a_marking_color = str(self.prop_marking_edge_a_color.currentData())
+        item.edge_a_marking_style = str(self.prop_marking_edge_a_style.currentData())
+
         item.show_center_line = self.prop_marking_center.isChecked()
+        item.center_marking_color = str(self.prop_marking_center_color.currentData())
+        item.center_marking_style = str(self.prop_marking_center_style.currentData())
+
         item.show_edge_b = self.prop_marking_edge_b.isChecked()
+        item.edge_b_marking_color = str(self.prop_marking_edge_b_color.currentData())
+        item.edge_b_marking_style = str(self.prop_marking_edge_b_style.currentData())
+
         item.show_end_bar = self.prop_marking_end_bar.isChecked()
+        item.end_bar_marking_color = str(self.prop_marking_end_bar_color.currentData())
+        item.end_bar_marking_style = str(self.prop_marking_end_bar_style.currentData())
+
         item.update()
         self.scene.update()
         self.update_selection_info()
