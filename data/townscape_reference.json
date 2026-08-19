@@ -27,13 +27,77 @@
     "filename": "townscape_nav_area.png",
     "pixel_width": 869,
     "pixel_height": 614,
-    "world_rect_m": [-250.0, -250.0, 500.0, 500.0],
-    "calibration": "Image is centered on the documented world origin and stretched to the documented approximate 500 m x 500 m world footprint. Treat road placement as approximate visual guidance."
+    "world_rect_m": [
+      -250.0,
+      -176.6398158803222,
+      500.0,
+      353.2796317606444
+    ],
+    "calibration": "Aspect-preserving pixel mapping: full documentation image width = 500 m, image center = world origin, identical X/Y meters-per-pixel. This is a baseline calibration because Quanser does not publish image-pixel anchor coordinates for this workspace.",
+    "pixel_to_world_affine": {
+      "x": [
+        0.5753739930955121,
+        0.0,
+        -250.0
+      ],
+      "y": [
+        0.0,
+        -0.5753739930955121,
+        176.6398158803222
+      ]
+    },
+    "meters_per_pixel": 0.5753739930955121
   },
   "reference_points": [
-    {"name": "Open World Origin", "x": 0.0, "y": 0.0, "z": 0.0, "yaw_deg": 0.0},
-    {"name": "Car Spawn Spot", "x": 0.0, "y": -1.300, "z": 0.005, "yaw_deg": 90.0},
-    {"name": "Road Parking 1", "x": -13.093, "y": -7.572, "z": 0.005, "yaw_deg": -42.0},
-    {"name": "Road Parking 2", "x": -18.078, "y": -2.879, "z": 0.005, "yaw_deg": -42.0}
-  ]
+    {
+      "name": "Open World Origin",
+      "x": 0.0,
+      "y": 0.0,
+      "z": 0.0,
+      "yaw_deg": 0.0
+    },
+    {
+      "name": "Car Spawn Spot",
+      "x": 0.0,
+      "y": -1.3,
+      "z": 0.005,
+      "yaw_deg": 90.0
+    },
+    {
+      "name": "Road Parking 1",
+      "x": -13.093,
+      "y": -7.572,
+      "z": 0.005,
+      "yaw_deg": -42.0
+    },
+    {
+      "name": "Road Parking 2",
+      "x": -18.078,
+      "y": -2.879,
+      "z": 0.005,
+      "yaw_deg": -42.0
+    }
+  ],
+  "calibration": {
+    "method": "Aspect-preserving pixel-to-world baseline. Full image width is mapped to the documented approximately 500 m workspace width; image center is placed at world origin; X/Y use one common meters-per-pixel scale.",
+    "status": "documentation_baseline_not_anchor_fitted",
+    "meters_per_pixel": 0.5753739930955121,
+    "image_center_pixel": [
+      434.5,
+      307.0
+    ],
+    "pixel_to_world_affine": {
+      "x": [
+        0.5753739930955121,
+        0.0,
+        -250.0
+      ],
+      "y": [
+        0.0,
+        -0.5753739930955121,
+        176.6398158803222
+      ]
+    },
+    "limitation": "Official Cityscape/Townscape documentation publishes workspace size, navigation boundary, and common world coordinates, but not matching pixel coordinates in the navigation image. Exact Open-Road-style anchor fitting therefore requires user-supplied pixel/world anchor pairs."
+  }
 }

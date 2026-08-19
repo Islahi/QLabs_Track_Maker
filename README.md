@@ -217,59 +217,38 @@ where applicable) can each be switched on/off and assigned one of the preset
 colors plus either **Solid** or **Dashed** style. The same settings are written
 to project JSON and reproduced by the QLabs exporter.
 
-## Cityscape and Townscape documentation maps
 
-Cityscape and Townscape now provide editor reference maps in the same Workspace
-reference workflow as Open Road. The packaged raster overlays are taken from the
-official Quanser navigation-area documentation images and are editor-only; they
-are never exported as QLabs actors.
+## Manual image tracing
 
-Quanser documents both worlds as approximately **500 m × 500 m**, centered on
-the origin, with ground at **Z = 0 m**. The documented outer navigation boundary
-is **400 m × 400 m**. The editor draws that outer boundary as a dashed frame and
-also exposes the common coordinates listed by Quanser as optional labeled
-reference points.
+The editor now supports editor-only image references.
 
-Important calibration limitation: Quanser does not publish surveyed vector road
-centerlines for these two pages. The official top-down image is therefore
-centered on the documented origin and mapped across the approximate 500 m ×
-500 m world footprint. Treat it as a placement/visual reference rather than a
-CAD-accurate road map. The JSON files in `data/` keep this calibration explicit
-so it can be refined later without changing the drawing code.
+1. Click **TRACE → Import Image** (or `File → Import Reference Image...`).
+2. Move the selected image by dragging it.
+3. Resize it by dragging the cyan handle at its bottom-right corner.
+4. For precise tracing, use the **REFERENCE IMAGE** inspector:
+   - Width
+   - Height
+   - Opacity
+   - Keep aspect ratio
+   - Lock position / resize
+   - Replace image
+   - Fit Canvas
+5. Rotate the reference with the normal **Rotation / angle** property.
 
-Packaged files:
+Reference images are saved in the project JSON using their file path, but are
+never exported to QLabs.
 
-- `workspace/documentation_maps.py`
-- `data/cityscape_reference.json`
-- `data/cityscape_nav_area.png`
-- `data/townscape_reference.json`
-- `data/townscape_nav_area.png`
+### Exact road angles
 
-Official documentation sources are recorded inside each JSON reference file.
+The normal **Rotation / angle** property now accepts 0.10-degree increments.
+The toolbar rotation-step selector also includes 0.5° and 1° steps. This is
+intended for manually tracing roads over a reference image.
 
+For manual tracing, a useful sequence is:
 
-## Open Road editor alignment
-
-This build keeps the working calibration supplied by the user:
-
-- default road width: 8.4 m
-- Open Road reference lane width: 4.0 m
-- three lanes per carriageway
-- reference centre divider: 0.25 m
-- default spline Z: 1.20 m
-
-The Open Road editor reference is shifted visually down by one 1 m grid block:
-
-```python
-OPEN_ROAD_REFERENCE_OFFSET_X_M = 0.0
-OPEN_ROAD_REFERENCE_OFFSET_Y_M = -1.0
-```
-
-The offset is editor-only and is never exported to QLabs.
-
-## Cityscape and Townscape reference maps
-
-Cityscape and Townscape documentation-derived reference maps are included.
-Select either workspace to show its packaged top-down reference, navigation
-area and documented reference points. These maps are editor placement aids
-and are not exported as actors.
+1. import and resize/rotate the image;
+2. lower opacity to about 0.30–0.50;
+3. lock the image;
+4. place straight road pieces over it;
+5. type the exact road angle in the inspector;
+6. adjust road length/width until the trace fits.

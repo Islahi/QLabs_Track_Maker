@@ -39,6 +39,7 @@ from items.environment import (
     FountainItem,
 )
 from items.base import TrackItem
+from items.reference import ReferenceImageItem
 
 TRACK_ITEM_CLASSES = {
     StraightRoadItem.TYPE_NAME: StraightRoadItem,
@@ -71,6 +72,7 @@ TRACK_ITEM_CLASSES = {
     AnimalItem.TYPE_NAME: AnimalItem,
     SecondaryQCarItem.TYPE_NAME: SecondaryQCarItem,
     TriggerZoneItem.TYPE_NAME: TriggerZoneItem,
+    ReferenceImageItem.TYPE_NAME: ReferenceImageItem,
 }
 
 def create_track_item_from_dict(data: dict) -> TrackItem | None:

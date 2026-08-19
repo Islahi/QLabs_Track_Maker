@@ -315,6 +315,27 @@ def make_tool_icon(kind: str, size: int = 30) -> QIcon:
     # ------------------------------------------------------------
     # Editing / utility
     # ------------------------------------------------------------
+
+    elif kind == "reference_image":
+        p.setPen(QPen(FG, 1.4))
+        p.setBrush(QColor(52, 58, 66))
+        p.drawRect(QRectF(4, 5, s - 8, s - 10))
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(ACCENT)
+        p.drawEllipse(QPointF(10, 11), 2.5, 2.5)
+        p.setBrush(QColor(95, 145, 105))
+        p.drawPolygon(QPolygonF([
+            QPointF(6, s - 7),
+            QPointF(13, 16),
+            QPointF(18, 21),
+            QPointF(22, 15),
+            QPointF(s - 6, s - 7),
+        ]))
+        p.setPen(QPen(ROAD_CENTER, 1.2))
+        p.drawLine(QPointF(s - 9, s - 9), QPointF(s - 4, s - 4))
+        p.drawLine(QPointF(s - 8, s - 4), QPointF(s - 4, s - 4))
+        p.drawLine(QPointF(s - 4, s - 8), QPointF(s - 4, s - 4))
+
     elif kind == "undo":
         p.setPen(QPen(ACCENT, 2.2))
         p.setBrush(Qt.BrushStyle.NoBrush)

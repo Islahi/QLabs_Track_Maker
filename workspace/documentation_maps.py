@@ -43,7 +43,10 @@ def load_documentation_workspace_reference(mode: str) -> tuple[dict, str]:
                 data.get("format") == "qlabs_workspace_raster_reference"
                 and str(data.get("mode", "")) == mode
                 and data.get("image", {}).get("filename")
-                and data.get("image", {}).get("world_rect_m")
+                and (
+                    data.get("image", {}).get("pixel_to_world_affine")
+                    or data.get("image", {}).get("world_rect_m")
+                )
             ):
                 data["_reference_json_path"] = str(path)
                 return data, source_name

@@ -17,7 +17,6 @@ from PySide6.QtGui import (
     QPainter,
     QPainterPath,
     QPen,
-    QPixmap,
     QIntValidator,
 )
 from PySide6.QtWidgets import (
@@ -50,8 +49,6 @@ from config import (
     OPEN_ROAD_REFERENCE_CARRIAGEWAY_WIDTH_M,
     OPEN_ROAD_REFERENCE_SEPARATOR_WIDTH_M,
     OPEN_ROAD_REFERENCE_TOTAL_WIDTH_M,
-    OPEN_ROAD_REFERENCE_OFFSET_X_M,
-    OPEN_ROAD_REFERENCE_OFFSET_Y_M,
     CROSSWALK_QLABS_BASE_SCALE,
     DEFAULT_BUILDING_RGB,
     EXPERIMENT_SPAWN_IMMEDIATE,
@@ -69,8 +66,6 @@ from config import (
     PROJECT_SCALES,
     WORKSPACE_CUSTOM,
     WORKSPACE_OPEN_ROAD,
-    WORKSPACE_CITYSCAPE,
-    WORKSPACE_TOWNSCAPE,
     WORKSPACE_MODES,
     DEFAULT_CANVAS_WIDTH_M,
     DEFAULT_CANVAS_HEIGHT_M,
@@ -92,10 +87,6 @@ from workspace.open_road import (
     _offset_world_polyline,
     _world_polyline_path,
 )
-from workspace.documentation_maps import (
-    load_documentation_workspace_reference,
-    reference_image_path,
-)
 from workspace.profiles import (
     DEFAULT_WORKSPACE_PLATFORM_COLOR_RGB,
     DEFAULT_WORKSPACE_PLATFORM_PROFILE,
@@ -110,6 +101,7 @@ from workspace.profiles import (
 from export.qlabs_exporter import build_qlabs_setup_source
 from core.traffic_sign_catalog import DEFAULT_TRAFFIC_SIGN_KEY, TRAFFIC_SIGN_CATALOG
 from items.base import TrackItem
+from items.reference import ReferenceImageItem
 from items.roads import (
     StraightRoadItem,
     Curve45RoadItem,
@@ -217,19 +209,6 @@ class TrackEditorWindow(QMainWindow):
             self.open_road_reference,
             self.open_road_reference_source,
         ) = load_open_road_reference()
-
-        # Cityscape and Townscape use official Quanser top-down navigation
-        # images plus the documented world/navigation sizes and common points.
-        # They are placement references only and are never exported as actors.
-        (
-            self.cityscape_reference,
-            self.cityscape_reference_source,
-        ) = load_documentation_workspace_reference(WORKSPACE_CITYSCAPE)
-        (
-            self.townscape_reference,
-            self.townscape_reference_source,
-        ) = load_documentation_workspace_reference(WORKSPACE_TOWNSCAPE)
-        self._workspace_reference_pixmaps = {}
 
         self.workspace_mode = WORKSPACE_CUSTOM
         self.workspace_spline_z_m = workspace_mode_default_spline_z(
@@ -374,9 +353,9 @@ class TrackEditorWindow(QMainWindow):
         self.properties_group = QGroupBox("PROPERTIES")
         self.properties_form = QFormLayout(self.properties_group)
 
-        self.prop_x = self._make_spinbox(-10000.0, 10000.0, 1.0, 1, " m")
-        self.prop_y = self._make_spinbox(-10000.0, 10000.0, 1.0, 1, " m")
-        self.prop_rotation = self._make_spinbox(0.0, 359.9, 1.0, 1, "°")
+        self.prop_x = self._make_spinbox(-10000.0, 10000.0, 0.10, 2, " m")
+        self.prop_y = self._make_spinbox(-10000.0, 10000.0, 0.10, 2, " m")
+        self.prop_rotation = self._make_spinbox(0.0, 359.99, 0.10, 2, "°")
         self.prop_length = self._make_spinbox(1.0, 1000.0, 1.0, 1, " m")
         self.prop_width = self._make_spinbox(0.05, 50.0, 0.05, 2, " m")
         self.prop_radius = self._make_spinbox(1.0, 1000.0, 1.0, 1, " m")
@@ -385,7 +364,7 @@ class TrackEditorWindow(QMainWindow):
 
         self.properties_form.addRow("X", self.prop_x)
         self.properties_form.addRow("Y", self.prop_y)
-        self.properties_form.addRow("Rotation", self.prop_rotation)
+        self.properties_form.addRow("Rotation / angle", self.prop_rotation)
         self.properties_form.addRow("Length", self.prop_length)
         self.properties_form.addRow("Width", self.prop_width)
         self.properties_form.addRow("Radius", self.prop_radius)
@@ -410,6 +389,96 @@ class TrackEditorWindow(QMainWindow):
         self.properties_form.addRow("QLabs effective", self.prop_effective)
 
         inspector_layout.addWidget(self.properties_group)
+
+        # --------------------------------------------------------
+        # Reference image controls
+        # --------------------------------------------------------
+        self.reference_image_group = QGroupBox("REFERENCE IMAGE")
+        reference_form = QFormLayout(self.reference_image_group)
+
+        self.prop_reference_file = QLabel("")
+        self.prop_reference_file.setWordWrap(True)
+        self.prop_reference_file.setStyleSheet(
+            "background: #20242a; padding: 5px; border-radius: 4px;"
+        )
+
+        self.prop_reference_width = self._make_spinbox(
+            0.10, 50000.0, 0.10, 2, " m"
+        )
+        self.prop_reference_height = self._make_spinbox(
+            0.10, 50000.0, 0.10, 2, " m"
+        )
+        self.prop_reference_opacity = self._make_spinbox(
+            0.05, 1.0, 0.05, 2
+        )
+
+        self.prop_reference_lock_aspect = QCheckBox(
+            "Keep image aspect ratio"
+        )
+        self.prop_reference_lock_aspect.setChecked(True)
+
+        self.prop_reference_lock_position = QCheckBox(
+            "Lock position / resize"
+        )
+
+        reference_button_row = QWidget()
+        reference_button_layout = QHBoxLayout(reference_button_row)
+        reference_button_layout.setContentsMargins(0, 0, 0, 0)
+        reference_button_layout.setSpacing(5)
+
+        self.reference_replace_button = QPushButton("Replace...")
+        self.reference_fit_canvas_button = QPushButton("Fit Canvas")
+        reference_button_layout.addWidget(self.reference_replace_button)
+        reference_button_layout.addWidget(self.reference_fit_canvas_button)
+
+        reference_note = QLabel(
+            "Drag the image to position it. Drag the cyan bottom-right handle "
+            "to resize it. Exact X/Y, size and angle can also be typed here. "
+            "Reference images are editor-only and are not exported to QLabs."
+        )
+        reference_note.setWordWrap(True)
+        reference_note.setStyleSheet(
+            "color: #aeb6bf; font-size: 11px;"
+        )
+
+        reference_form.addRow("File", self.prop_reference_file)
+        reference_form.addRow("Width", self.prop_reference_width)
+        reference_form.addRow("Height", self.prop_reference_height)
+        reference_form.addRow("Opacity", self.prop_reference_opacity)
+        reference_form.addRow(self.prop_reference_lock_aspect)
+        reference_form.addRow(self.prop_reference_lock_position)
+        reference_form.addRow(reference_button_row)
+        reference_form.addRow(reference_note)
+
+        self.prop_reference_width.valueChanged.connect(
+            lambda value: self.apply_reference_image_size(
+                "width", value
+            )
+        )
+        self.prop_reference_height.valueChanged.connect(
+            lambda value: self.apply_reference_image_size(
+                "height", value
+            )
+        )
+        self.prop_reference_opacity.valueChanged.connect(
+            self.apply_reference_image_opacity
+        )
+        self.prop_reference_lock_aspect.toggled.connect(
+            self.apply_reference_image_lock_aspect
+        )
+        self.prop_reference_lock_position.toggled.connect(
+            self.apply_reference_image_lock_position
+        )
+        self.reference_replace_button.clicked.connect(
+            self.replace_reference_image
+        )
+        self.reference_fit_canvas_button.clicked.connect(
+            self.fit_selected_reference_image_to_canvas
+        )
+
+        self.reference_image_group.setVisible(False)
+        inspector_layout.addWidget(self.reference_image_group)
+
 
         # --------------------------------------------------------
         # Road marking customization
@@ -1052,6 +1121,10 @@ class TrackEditorWindow(QMainWindow):
         save_as_action.setShortcut(QKeySequence.StandardKey.SaveAs)
         save_as_action.triggered.connect(lambda: self.save_track(save_as=True))
 
+        import_reference_action = QAction("Import Reference Image...", self)
+        import_reference_action.setShortcut(QKeySequence("Ctrl+I"))
+        import_reference_action.triggered.connect(self.add_reference_image)
+
         export_action = QAction("Export QLabs Setup...", self)
         export_action.setShortcut(QKeySequence("Ctrl+E"))
         export_action.triggered.connect(self.export_qlabs_setup)
@@ -1096,6 +1169,8 @@ class TrackEditorWindow(QMainWindow):
         file_menu.addSeparator()
         file_menu.addAction(save_action)
         file_menu.addAction(save_as_action)
+        file_menu.addSeparator()
+        file_menu.addAction(import_reference_action)
         file_menu.addSeparator()
         file_menu.addAction(export_action)
         file_menu.addSeparator()
@@ -1183,6 +1258,105 @@ class TrackEditorWindow(QMainWindow):
     def _workspace_new_road_width_m(self) -> float:
         """Width assigned to newly created road components in this workspace."""
         return workspace_mode_default_road_width(self.workspace_mode)
+
+
+    def add_reference_image(self):
+        """Import an image as a movable/resizable tracing reference."""
+        file_name, _ = QFileDialog.getOpenFileName(
+            self,
+            "Import Reference Image",
+            "",
+            (
+                "Images (*.png *.jpg *.jpeg *.bmp *.webp);;"
+                "All Files (*)"
+            ),
+        )
+        if not file_name:
+            return
+
+        item = ReferenceImageItem(
+            image_path=file_name,
+        )
+
+        # Fit the newly imported image inside most of the editable canvas while
+        # preserving the image's native aspect ratio.
+        aspect = max(item.native_aspect_ratio(), 1e-9)
+        max_width = max(1.0, self.canvas_width_m * 0.90)
+        max_height = max(1.0, self.canvas_height_m * 0.90)
+
+        width_m = max_width
+        height_m = width_m / aspect
+
+        if height_m > max_height:
+            height_m = max_height
+            width_m = height_m * aspect
+
+        item.set_dimensions_m(
+            width_m,
+            height_m,
+        )
+        self._add_item_at_view_center(item)
+
+    def _reference_image_item(self):
+        item = self._single_selected_item()
+        return item if isinstance(item, ReferenceImageItem) else None
+
+    def replace_reference_image(self):
+        item = self._reference_image_item()
+        if item is None:
+            return
+
+        file_name, _ = QFileDialog.getOpenFileName(
+            self,
+            "Replace Reference Image",
+            item.image_path,
+            (
+                "Images (*.png *.jpg *.jpeg *.bmp *.webp);;"
+                "All Files (*)"
+            ),
+        )
+        if not file_name:
+            return
+
+        self._begin_undo_transaction("Replace reference image")
+        item.set_image_path(file_name)
+
+        if item.lock_aspect_ratio:
+            aspect = max(item.native_aspect_ratio(), 1e-9)
+            item.set_dimensions_m(
+                item.width_m,
+                item.width_m / aspect,
+            )
+
+        self.scene.update()
+        self.update_selection_info()
+        self._commit_undo_transaction()
+
+    def fit_selected_reference_image_to_canvas(self):
+        item = self._reference_image_item()
+        if item is None:
+            return
+
+        self._begin_undo_transaction("Fit reference image to canvas")
+
+        aspect = max(item.native_aspect_ratio(), 1e-9)
+        max_width = max(1.0, self.canvas_width_m * 0.95)
+        max_height = max(1.0, self.canvas_height_m * 0.95)
+
+        width_m = max_width
+        height_m = width_m / aspect
+
+        if height_m > max_height:
+            height_m = max_height
+            width_m = height_m * aspect
+
+        item.set_dimensions_m(width_m, height_m)
+        item.setPos(QPointF(0.0, 0.0))
+
+        self.scene.update()
+        self.update_selection_info()
+        self._commit_undo_transaction()
+
 
     def add_straight_road(self):
         self._add_item_at_view_center(
@@ -1913,50 +2087,6 @@ class TrackEditorWindow(QMainWindow):
             fit_reference=False
         )
 
-    def _documentation_reference_for_mode(self, mode: str | None = None):
-        """Return (reference, source) for Cityscape/Townscape, else (None, '')."""
-        selected = self.workspace_mode if mode is None else str(mode)
-        if selected == WORKSPACE_CITYSCAPE:
-            return self.cityscape_reference, self.cityscape_reference_source
-        if selected == WORKSPACE_TOWNSCAPE:
-            return self.townscape_reference, self.townscape_reference_source
-        return None, ""
-
-    def _has_detailed_workspace_reference(self, mode: str | None = None) -> bool:
-        selected = self.workspace_mode if mode is None else str(mode)
-        return selected in {
-            WORKSPACE_OPEN_ROAD,
-            WORKSPACE_CITYSCAPE,
-            WORKSPACE_TOWNSCAPE,
-        }
-
-    def _documentation_reference_scene_rect(
-        self,
-        reference: dict,
-        margin_m: float = 0.0,
-    ) -> QRectF:
-        """Return the scene rectangle occupied by a documentation raster map."""
-        world_rect = reference.get("image", {}).get(
-            "world_rect_m", [-250.0, -250.0, 500.0, 500.0]
-        )
-        min_x, min_y, width_m, height_m = [float(v) for v in world_rect]
-        max_y = min_y + height_m
-        left = (min_x - margin_m) * PIXELS_PER_METER
-        top = -(max_y + margin_m) * PIXELS_PER_METER
-        width_px = (width_m + 2.0 * margin_m) * PIXELS_PER_METER
-        height_px = (height_m + 2.0 * margin_m) * PIXELS_PER_METER
-        return QRectF(left, top, width_px, height_px)
-
-    def _documentation_reference_pixmap(self, reference: dict) -> QPixmap:
-        """Load/cache the packaged official documentation image."""
-        image_path = reference_image_path(reference)
-        cache_key = str(image_path.resolve())
-        pixmap = self._workspace_reference_pixmaps.get(cache_key)
-        if pixmap is None:
-            pixmap = QPixmap(str(image_path))
-            self._workspace_reference_pixmaps[cache_key] = pixmap
-        return pixmap
-
     def _open_road_scene_rect(
         self,
         margin_m: float = 500.0,
@@ -2041,21 +2171,19 @@ class TrackEditorWindow(QMainWindow):
         fit_reference: bool = False,
     ):
         open_road = self.workspace_mode == WORKSPACE_OPEN_ROAD
-        detailed_reference = self._has_detailed_workspace_reference()
-        documentation_reference, documentation_source = (
-            self._documentation_reference_for_mode()
-        )
         profile = workspace_mode_profile(self.workspace_mode)
         label = workspace_mode_label(self.workspace_mode)
 
-        # Open Road, Cityscape and Townscape now provide editor reference maps.
+        # Open Road is the only workspace with the detailed 2-D reference
+        # overlay. The fit button remains available for all other workspaces
+        # and fits their documented footprint instead.
         for widget in (
             self.workspace_show_road_checkbox,
             self.workspace_show_nav_checkbox,
             self.workspace_show_points_checkbox,
             self.workspace_show_labels_checkbox,
         ):
-            widget.setEnabled(detailed_reference)
+            widget.setEnabled(open_road)
         self.fit_workspace_button.setEnabled(True)
 
         if open_road:
@@ -2103,45 +2231,6 @@ class TrackEditorWindow(QMainWindow):
                     )
                 )
             )
-
-        elif documentation_reference is not None:
-            # Cityscape/Townscape maps use the official top-down navigation
-            # image aligned to the documented approximate 500 m x 500 m world.
-            # Project-scale behavior is intentionally left unchanged.
-            self.project_scale_combo.setEnabled(True)
-            self.custom_scale_denominator.setEnabled(True)
-            self.scale_help_label.setText(
-                "The Cityscape/Townscape reference image is shown in native "
-                "QLabs world meters. Project scale remains user-selectable for "
-                "the custom actors/roads you export."
-            )
-
-            world = documentation_reference.get("world", {})
-            navigation = documentation_reference.get("navigation_area", {})
-            sx = float(world.get("size_x_m", profile["size_x_m"]))
-            sy = float(world.get("size_y_m", profile["size_y_m"]))
-            nav_x = float(navigation.get("outer_size_x_m", 400.0))
-            nav_y = float(navigation.get("outer_size_y_m", 400.0))
-            self.workspace_reference_note.setText(
-                f"{label} documentation map enabled. Approximate world: "
-                f"{sx:g} × {sy:g} m centered at the origin; documented outer "
-                f"navigation boundary: {nav_x:g} × {nav_y:g} m. "
-                "The top-down image is a visual placement reference, not surveyed "
-                "road-centerline/CAD geometry, and is never exported. "
-                f"Spline Z: {self.workspace_spline_z_m:.2f} m. "
-                f"Source data: {documentation_source}."
-            )
-
-            self.scene.setSceneRect(
-                self._documentation_reference_scene_rect(
-                    documentation_reference, margin_m=30.0
-                ).united(
-                    self.scene.editable_area_rect().adjusted(
-                        -500.0, -500.0, 500.0, 500.0
-                    )
-                )
-            )
-
         else:
             self.project_scale_combo.setEnabled(True)
             self.custom_scale_denominator.setEnabled(True)
@@ -2178,14 +2267,9 @@ class TrackEditorWindow(QMainWindow):
         self.update_zoom_label()
 
     def fit_selected_workspace(self):
-        """Fit the selected detailed reference or native workspace footprint."""
+        """Fit Open Road reference or the selected native workspace footprint."""
         if self.workspace_mode == WORKSPACE_OPEN_ROAD:
             rect = self._open_road_scene_rect(margin_m=250.0)
-        elif self.workspace_mode in {WORKSPACE_CITYSCAPE, WORKSPACE_TOWNSCAPE}:
-            reference, _source = self._documentation_reference_for_mode()
-            rect = self._documentation_reference_scene_rect(
-                reference, margin_m=20.0
-            )
         elif self.workspace_mode == WORKSPACE_CUSTOM:
             rect = self.scene.editable_area_rect().adjusted(-40.0, -40.0, 40.0, 40.0)
         else:
@@ -2199,119 +2283,15 @@ class TrackEditorWindow(QMainWindow):
         # Backward-compatible action target used by older UI code.
         self.fit_selected_workspace()
 
-    def _draw_documentation_workspace_reference(
-        self,
-        painter: QPainter,
-        rect: QRectF,
-        reference: dict,
-    ):
-        """Paint a Cityscape/Townscape official documentation map overlay."""
-        target_rect = self._documentation_reference_scene_rect(reference)
-        if not target_rect.intersects(rect):
-            return
-
-        # Official top-down navigation image. It is intentionally translucent
-        # so the editor grid, axes, and user-created track remain readable.
-        if self.workspace_show_road_reference:
-            pixmap = self._documentation_reference_pixmap(reference)
-            if not pixmap.isNull():
-                painter.save()
-                painter.setOpacity(0.72)
-                painter.drawPixmap(
-                    target_rect,
-                    pixmap,
-                    QRectF(pixmap.rect()),
-                )
-                painter.restore()
-
-        # Quanser documents only the OUTER navigation boundary numerically.
-        # Interior obstacles/breaks remain visible in the official raster image.
-        if self.workspace_show_navigation_regions:
-            navigation = reference.get("navigation_area", {})
-            nav_w = float(navigation.get("outer_size_x_m", 400.0))
-            nav_h = float(navigation.get("outer_size_y_m", 400.0))
-            nav_cx = float(navigation.get("center_x_m", 0.0))
-            nav_cy = float(navigation.get("center_y_m", 0.0))
-            center = world_to_scene(nav_cx, nav_cy)
-            nav_rect = QRectF(
-                center.x() - nav_w * PIXELS_PER_METER / 2.0,
-                center.y() - nav_h * PIXELS_PER_METER / 2.0,
-                nav_w * PIXELS_PER_METER,
-                nav_h * PIXELS_PER_METER,
-            )
-            nav_pen = QPen(QColor(90, 225, 120, 220), 2, Qt.PenStyle.DashLine)
-            nav_pen.setCosmetic(True)
-            painter.setPen(nav_pen)
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawRect(nav_rect)
-
-        if self.workspace_show_reference_points:
-            view_scale = max(abs(self.view.transform().m11()), 1e-9)
-            marker_radius_scene = 6.0 / view_scale
-            point_pen = QPen(QColor(255, 210, 65, 245), 2)
-            point_pen.setCosmetic(True)
-            painter.setPen(point_pen)
-            painter.setBrush(QColor(255, 175, 45, 225))
-
-            label_positions = []
-            for point in reference.get("reference_points", []):
-                scene_pos = world_to_scene(
-                    float(point.get("x", 0.0)),
-                    float(point.get("y", 0.0)),
-                )
-                painter.drawEllipse(
-                    scene_pos, marker_radius_scene, marker_radius_scene
-                )
-                if self.workspace_show_reference_labels:
-                    label_positions.append((
-                        painter.worldTransform().map(scene_pos),
-                        str(point.get("name", "")),
-                    ))
-
-            if label_positions:
-                painter.save()
-                painter.resetTransform()
-                font = painter.font()
-                font.setPixelSize(12)
-                painter.setFont(font)
-                painter.setPen(QPen(QColor(255, 235, 150), 1))
-                for device_pos, label in label_positions:
-                    painter.drawText(
-                        QPointF(device_pos.x() + 9.0, device_pos.y() - 8.0),
-                        label,
-                    )
-                painter.restore()
-
-    @staticmethod
-    def _translate_open_road_point(point):
-        """Apply the editor-only Open Road reference alignment offset."""
-        return (
-            float(point[0]) + OPEN_ROAD_REFERENCE_OFFSET_X_M,
-            float(point[1]) + OPEN_ROAD_REFERENCE_OFFSET_Y_M,
-        )
-
-    @classmethod
-    def _translate_open_road_points(cls, points):
-        return [
-            cls._translate_open_road_point(point)
-            for point in points
-            if len(point) >= 2
-        ]
-
     def draw_workspace_reference(
         self,
         painter: QPainter,
         rect: QRectF,
     ):
-        if self.workspace_mode in {WORKSPACE_CITYSCAPE, WORKSPACE_TOWNSCAPE}:
-            reference, _source = self._documentation_reference_for_mode()
-            if reference is not None:
-                self._draw_documentation_workspace_reference(
-                    painter, rect, reference
-                )
-            return
-
-        if self.workspace_mode != WORKSPACE_OPEN_ROAD:
+        if (
+            self.workspace_mode
+            != WORKSPACE_OPEN_ROAD
+        ):
             return
 
         reference = self.open_road_reference
@@ -2349,11 +2329,9 @@ class TrackEditorWindow(QMainWindow):
                 "navigation_regions",
                 [],
             ):
-                polygon = self._translate_open_road_points(
-                    region.get(
-                        "polygon",
-                        [],
-                    )
+                polygon = region.get(
+                    "polygon",
+                    [],
                 )
 
                 if len(polygon) < 3:
@@ -2386,11 +2364,9 @@ class TrackEditorWindow(QMainWindow):
                 "road_reference",
                 {},
             )
-            points = self._translate_open_road_points(
-                road_data.get(
-                    "points",
-                    [],
-                )
+            points = road_data.get(
+                "points",
+                [],
             )
             road_closed = bool(
                 road_data.get(
@@ -2862,6 +2838,127 @@ class TrackEditorWindow(QMainWindow):
         finally:
             self._block_property_signals(False)
             self._property_refreshing = False
+
+
+    def _refresh_reference_image_editor(
+        self,
+        item: TrackItem | None,
+    ):
+        supported = isinstance(item, ReferenceImageItem)
+        self.reference_image_group.setVisible(supported)
+
+        if not supported:
+            return
+
+        widgets = (
+            self.prop_reference_width,
+            self.prop_reference_height,
+            self.prop_reference_opacity,
+            self.prop_reference_lock_aspect,
+            self.prop_reference_lock_position,
+        )
+
+        for widget in widgets:
+            widget.blockSignals(True)
+
+        try:
+            self.prop_reference_file.setText(
+                item.image_path or "Missing image"
+            )
+            self.prop_reference_width.setValue(
+                float(item.width_m)
+            )
+            self.prop_reference_height.setValue(
+                float(item.height_m)
+            )
+            self.prop_reference_opacity.setValue(
+                float(item.image_opacity)
+            )
+            self.prop_reference_lock_aspect.setChecked(
+                bool(item.lock_aspect_ratio)
+            )
+            self.prop_reference_lock_position.setChecked(
+                bool(item.lock_position)
+            )
+        finally:
+            for widget in widgets:
+                widget.blockSignals(False)
+
+    def apply_reference_image_size(
+        self,
+        changed_dimension: str,
+        value: float,
+    ):
+        if self._property_refreshing:
+            return
+
+        item = self._reference_image_item()
+        if item is None:
+            return
+
+        self._begin_undo_transaction(
+            "Resize reference image"
+        )
+
+        width_m = float(item.width_m)
+        height_m = float(item.height_m)
+        aspect = max(item.native_aspect_ratio(), 1e-9)
+
+        if changed_dimension == "width":
+            width_m = float(value)
+            if item.lock_aspect_ratio:
+                height_m = width_m / aspect
+        else:
+            height_m = float(value)
+            if item.lock_aspect_ratio:
+                width_m = height_m * aspect
+
+        item.set_dimensions_m(width_m, height_m)
+        self.scene.update()
+        self.update_selection_info()
+        self._commit_undo_transaction()
+
+    def apply_reference_image_opacity(self, value: float):
+        item = self._reference_image_item()
+        if item is None:
+            return
+
+        self._begin_undo_transaction(
+            "Change reference image opacity"
+        )
+        item.image_opacity = max(
+            0.05,
+            min(1.0, float(value)),
+        )
+        item.update()
+        self.scene.update()
+        self.update_selection_info()
+        self._commit_undo_transaction()
+
+    def apply_reference_image_lock_aspect(self, checked: bool):
+        item = self._reference_image_item()
+        if item is None:
+            return
+
+        self._begin_undo_transaction(
+            "Change reference image aspect lock"
+        )
+        item.lock_aspect_ratio = bool(checked)
+        item.update()
+        self._commit_undo_transaction()
+
+    def apply_reference_image_lock_position(self, checked: bool):
+        item = self._reference_image_item()
+        if item is None:
+            return
+
+        self._begin_undo_transaction(
+            "Change reference image lock"
+        )
+        item.set_position_locked(bool(checked))
+        self.update_selection_info()
+        self._commit_undo_transaction()
+
 
     def _refresh_road_markings_editor(self, item: TrackItem | None):
         supported = item is not None and item.supports_road_markings()
@@ -3623,6 +3720,16 @@ class TrackEditorWindow(QMainWindow):
     def _effective_text(self, item: TrackItem | None) -> str:
         if item is None:
             return ""
+
+        if isinstance(item, ReferenceImageItem):
+            return (
+                "Editor-only tracing reference\n"
+                "Not exported to QLabs\n"
+                f"Width: {item.width_m:.2f} m\n"
+                f"Height: {item.height_m:.2f} m\n"
+                f"Angle: {normalize_angle(item.rotation()):.2f}°"
+            )
+
         f = self.project_scale_factor
         x_m, y_m = scene_to_world(item.pos())
         lines = [
@@ -3807,6 +3914,7 @@ class TrackEditorWindow(QMainWindow):
             self._refresh_experiment_editor(selected[0])
             self._refresh_guide_editor(selected[0])
             self._refresh_road_markings_editor(selected[0])
+            self._refresh_reference_image_editor(selected[0])
         elif len(selected) > 1:
             self.selection_label.setText(f"{len(selected)} objects selected")
             self._refresh_property_editor(None)
@@ -3815,6 +3923,8 @@ class TrackEditorWindow(QMainWindow):
             self._refresh_experiment_editor(None)
             self._refresh_guide_editor(None)
             self._refresh_road_markings_editor(None)
+            self._refresh_reference_image_editor(None)
+            self._refresh_reference_image_editor(None)
         else:
             self.selection_label.setText("None")
             self._refresh_property_editor(None)
