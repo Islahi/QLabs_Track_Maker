@@ -10,6 +10,7 @@ from config import (
     PIXELS_PER_METER,
     WORKSPACE_OPEN_ROAD,
     WORKSPACE_CITYSCAPE,
+    WORKSPACE_CITYSCAPE_LITE,
     WORKSPACE_TOWNSCAPE,
     WORKSPACE_TOWNSCAPE_LITE,
 )
@@ -72,6 +73,7 @@ class TrackView(QGraphicsView):
         mapped_mode = self.editor_window.workspace_mode in (
             WORKSPACE_OPEN_ROAD,
             WORKSPACE_CITYSCAPE,
+            WORKSPACE_CITYSCAPE_LITE,
             WORKSPACE_TOWNSCAPE,
             WORKSPACE_TOWNSCAPE_LITE,
         )

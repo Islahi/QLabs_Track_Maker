@@ -9,7 +9,7 @@ import json
 import math
 from pathlib import Path
 
-from PySide6.QtCore import QPointF, QRectF, Qt
+from PySide6.QtCore import QPointF, QRectF, Qt, QTimer
 from PySide6.QtGui import (
     QAction,
     QColor,
@@ -68,6 +68,7 @@ from config import (
     WORKSPACE_CUSTOM,
     WORKSPACE_OPEN_ROAD,
     WORKSPACE_CITYSCAPE,
+    WORKSPACE_CITYSCAPE_LITE,
     WORKSPACE_TOWNSCAPE,
     WORKSPACE_TOWNSCAPE_LITE,
     WORKSPACE_MODES,
@@ -1956,6 +1957,57 @@ class TrackEditorWindow(QMainWindow):
     # Workspace reference
     # ------------------------------------------------------------
 
+    def _auto_size_compact_workspace_canvas(self):
+        """Resize the editable canvas around Cityscape/Townscape references.
+
+        The editor canvas is centered on QLabs (0, 0), while the calibrated
+        raster bounds are not necessarily symmetric about the origin.  Use
+        the largest absolute X/Y extent plus a small design margin, then round
+        up to a clean 5 m increment.  This is only called when the user
+        actively switches workspace; saved project canvas dimensions remain
+        authoritative when a JSON project is reopened.
+        """
+        if self.workspace_mode in (WORKSPACE_CITYSCAPE, WORKSPACE_CITYSCAPE_LITE):
+            bounds = self.cityscape_reference.get("bounds", {})
+        elif self.workspace_mode in (WORKSPACE_TOWNSCAPE, WORKSPACE_TOWNSCAPE_LITE):
+            bounds = self.townscape_reference.get("bounds", {})
+        else:
+            return
+
+        min_x = float(bounds.get("min_x", -30.0))
+        max_x = float(bounds.get("max_x", 30.0))
+        min_y = float(bounds.get("min_y", -30.0))
+        max_y = float(bounds.get("max_y", 30.0))
+        margin_m = 8.0
+
+        width_m = 2.0 * (max(abs(min_x), abs(max_x)) + margin_m)
+        height_m = 2.0 * (max(abs(min_y), abs(max_y)) + margin_m)
+        width_m = max(40.0, math.ceil(width_m / 5.0) * 5.0)
+        height_m = max(40.0, math.ceil(height_m / 5.0) * 5.0)
+
+        self.canvas_width_m = width_m
+        self.canvas_height_m = height_m
+        self.canvas_width_spin.blockSignals(True)
+        self.canvas_height_spin.blockSignals(True)
+        try:
+            self.canvas_width_spin.setValue(width_m)
+            self.canvas_height_spin.setValue(height_m)
+        finally:
+            self.canvas_width_spin.blockSignals(False)
+            self.canvas_height_spin.blockSignals(False)
+
+        self.scene.set_editable_area_size(width_m, height_m)
+
+    def _schedule_compact_workspace_autofit(self):
+        """Fit after Qt finishes the current combo/layout update."""
+        if self.workspace_mode in (
+            WORKSPACE_CITYSCAPE,
+            WORKSPACE_CITYSCAPE_LITE,
+            WORKSPACE_TOWNSCAPE,
+            WORKSPACE_TOWNSCAPE_LITE,
+        ):
+            QTimer.singleShot(0, self.fit_selected_workspace)
+
     def workspace_mode_changed(self, *args):
         self._begin_undo_transaction("Change workspace")
         self.workspace_mode = str(
@@ -1975,10 +2027,20 @@ class TrackEditorWindow(QMainWindow):
         finally:
             self.workspace_spline_z_spin.blockSignals(False)
 
+        # Compact mapped workspaces use the calibrated road-reference bounds
+        # to size the editable design canvas automatically.
+        self._auto_size_compact_workspace_canvas()
+
         # Keep the optional cover-box profile aligned with the selected main
         # workspace, without automatically enabling the cover itself.
         self._sync_workspace_platform_profile_to_mode()
-        self._apply_workspace_mode(fit_reference=True)
+        self._apply_workspace_mode(fit_reference=False)
+        self._schedule_compact_workspace_autofit()
+        if self.workspace_mode not in (
+            WORKSPACE_CITYSCAPE, WORKSPACE_CITYSCAPE_LITE,
+            WORKSPACE_TOWNSCAPE, WORKSPACE_TOWNSCAPE_LITE,
+        ):
+            self.fit_selected_workspace()
         self._refresh_scale_ui()
         self._commit_undo_transaction()
 
@@ -2243,7 +2305,9 @@ class TrackEditorWindow(QMainWindow):
         fit_reference: bool = False,
     ):
         open_road = self.workspace_mode == WORKSPACE_OPEN_ROAD
-        cityscape = self.workspace_mode == WORKSPACE_CITYSCAPE
+        cityscape = self.workspace_mode in (
+            WORKSPACE_CITYSCAPE, WORKSPACE_CITYSCAPE_LITE
+        )
         townscape = self.workspace_mode in (
             WORKSPACE_TOWNSCAPE, WORKSPACE_TOWNSCAPE_LITE
         )
@@ -2251,10 +2315,9 @@ class TrackEditorWindow(QMainWindow):
         profile = workspace_mode_profile(self.workspace_mode)
         label = workspace_mode_label(self.workspace_mode)
 
-        # Open Road and Cityscape have documentation-derived 2-D placement
-        # references. Cityscape currently has a road-vector trace plus the
-        # documented outer navigation boundary; Open Road keeps its richer
-        # navigation-region reference.
+        # Open Road, Cityscape/Cityscape Lite, and Townscape/Townscape Lite
+        # have mapped placement references.  The Lite variants intentionally
+        # share the same calibrated road geometry as their full counterparts.
         self.workspace_show_road_checkbox.setEnabled(mapped_workspace)
         self.workspace_show_nav_checkbox.setEnabled(mapped_workspace)
         self.workspace_show_points_checkbox.setEnabled(mapped_workspace)
@@ -2330,7 +2393,8 @@ class TrackEditorWindow(QMainWindow):
                 self.workspace_reference_note.setText(
                     reference_description
                     + "The navigation overlay shows only Quanser's documented 400 m × "
-                    "400 m outer boundary; internal obstacle holes are not reconstructed."
+                    "400 m outer boundary; internal obstacle holes are not reconstructed. "
+                    f"Native-workspace track/spawn Z: {self.workspace_spline_z_m:.2f} m."
                     + accuracy_text
                     + f" Source data: {self.cityscape_reference_source}."
                 )
@@ -2362,7 +2426,8 @@ class TrackEditorWindow(QMainWindow):
                     "Road Parking 1/2 coordinates. The raster is editor-only and is "
                     "never exported. The same road geometry is used for Townscape and "
                     "Townscape Lite. The navigation overlay shows only Quanser's "
-                    "documented 400 m × 400 m outer boundary."
+                    "documented 400 m × 400 m outer boundary. "
+                    f"Native-workspace track/spawn Z: {self.workspace_spline_z_m:.2f} m."
                     + accuracy_text
                     + f" Source data: {self.townscape_reference_source}."
                 )
@@ -2415,10 +2480,10 @@ class TrackEditorWindow(QMainWindow):
         """Fit the selected mapped reference or native workspace footprint."""
         if self.workspace_mode == WORKSPACE_OPEN_ROAD:
             rect = self._open_road_scene_rect(margin_m=250.0)
-        elif self.workspace_mode == WORKSPACE_CITYSCAPE:
-            rect = self._cityscape_scene_rect(margin_m=15.0)
+        elif self.workspace_mode in (WORKSPACE_CITYSCAPE, WORKSPACE_CITYSCAPE_LITE):
+            rect = self._cityscape_scene_rect(margin_m=8.0)
         elif self.workspace_mode in (WORKSPACE_TOWNSCAPE, WORKSPACE_TOWNSCAPE_LITE):
-            rect = self._townscape_scene_rect(margin_m=12.0)
+            rect = self._townscape_scene_rect(margin_m=8.0)
         elif self.workspace_mode == WORKSPACE_CUSTOM:
             rect = self.scene.editable_area_rect().adjusted(-40.0, -40.0, 40.0, 40.0)
         else:
@@ -2634,7 +2699,7 @@ class TrackEditorWindow(QMainWindow):
         painter: QPainter,
         rect: QRectF,
     ):
-        if self.workspace_mode == WORKSPACE_CITYSCAPE:
+        if self.workspace_mode in (WORKSPACE_CITYSCAPE, WORKSPACE_CITYSCAPE_LITE):
             self._draw_cityscape_reference(painter, rect)
             return
 

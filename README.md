@@ -51,3 +51,12 @@ The raster is a locked placement guide only. It is not selectable and is never e
 ## Accuracy note
 
 The reported marker residual quantifies agreement at the four calibration points in the supplied top-down capture. It should not be interpreted as centimetre-level survey accuracy across every road edge. The reference remains a calibrated visual placement guide and should be revalidated after major QLabs workspace/camera changes.
+
+
+## v2.5 workspace-fit / Z defaults
+
+- Cityscape and Cityscape Lite now share the same calibrated Cityscape map.
+- Townscape and Townscape Lite continue to share the validated Townscape map.
+- Selecting any of those four compact mapped workspaces automatically sizes the editable canvas around the calibrated map and then fits the viewport to it.
+- Saved JSON projects keep their explicitly saved canvas dimensions when reopened.
+- Native track/spawn base Z defaults are workspace-specific: Plane/Custom = 0.20 m, Cityscape/Cityscape Lite = 0.50 m, Townscape/Townscape Lite = 0.50 m, Open Road = 1.20 m.  The toolbar value remains editable and saved per project.
