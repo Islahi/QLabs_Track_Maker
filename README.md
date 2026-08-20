@@ -1,62 +1,175 @@
-# Cityscape + Townscape mapped workspace references — v2.4
+# QLabs Track Editor
 
-This package preserves the corrected **Cityscape v2.2** reference and replaces the preliminary Townscape v2.3 two-anchor fit with a **four-marker validated Townscape/Townscape Lite calibration**.
+A desktop visual editor for designing road networks, placing actors and scenery, and exporting runnable Python setup scripts for **Quanser Interactive Labs (QLabs)**.
 
-## Townscape v2.4 correction
+The editor provides a 2-D, meter-based canvas with snapping, calibrated workspace references, object properties, project save/load, and a standalone QLabs exporter. It is intended to make repeatable QLabs scene construction faster than positioning every actor manually in code.
 
-The previous Townscape reference was close but slightly misaligned because it inferred the documented road-parking coordinates from the visible parking-bay geometry. The new calibration uses the four temporary markers spawned by `tools/townscape_validate_reference.py`:
+> **Status:** active development (`v2.0.0-dev`). Project files and generated scripts should be reviewed before use in important experiments.
+
+## Features
+
+- Build roads from straight sections, 45°/90° curves, intersections, T-junctions, road ends, and median walls.
+- Configure road widths, markings, colors, line styles, and component transforms.
+- Place traffic lights, road signs, crosswalks, pedestrians, animals, QCar2 actors, and trigger zones.
+- Add buildings, trees, benches, lamps, bins, planters, fountains, and other static scenery.
+- Automatically fill open space with urban, suburban, or park scenery while preserving a roadside reserve.
+- Create manual movement paths for supported actors without relying on a QLabs navigation mesh.
+- Use endpoint/wall snapping, an adaptive grid, duplication, rotation, deletion, and undo.
+- Import movable and resizable reference images for manual tracing.
+- Save complete editor projects as JSON and reopen them later.
+- Export a standalone Python script that connects to QLabs and builds the configured scene.
+- Switch between system, light, and dark application themes.
+
+## Supported workspaces
+
+| Editor selection | QLabs workspace | Reference behavior |
+| --- | --- | --- |
+| Plane / Custom | Plane | Freeform meter-based canvas |
+| Open Road | OpenRoad | Large native-road reference overlay |
+| Cityscape | Cityscape | Calibrated map and automatic canvas fit |
+| Cityscape Lite | CityscapeLite | Shares the calibrated Cityscape map |
+| Townscape | Townscape | Calibrated map and automatic canvas fit |
+| Townscape Lite | TownscapeLite | Shares the calibrated Townscape map |
+| Studio | Studio | Indoor workspace profile |
+| Warehouse | Warehouse | Indoor workspace profile |
+
+Workspace reference overlays are editor-only placement guides. They are not exported as road geometry.
+
+## Requirements
+
+### Editor
+
+- Python 3.10 or newer
+- [PySide6](https://pypi.org/project/PySide6/)
+
+### Running exported scenes
+
+- A working Quanser Interactive Labs installation
+- The Quanser QLabs Python libraries (`qvl`) available in the environment used to run the exported script
+- The matching QLabs workspace open before executing the generated script
+
+The editor itself does not need QLabs to be running. QLabs is required only when executing an exported setup script.
+
+## Quick start
+
+Clone the repository and enter it:
+
+```bash
+git clone https://github.com/Islahi/QLabs_Track_Maker.git
+cd QLabs_Track_Maker
+```
+
+Create and activate a virtual environment:
+
+```bash
+python -m venv .venv
+```
+
+Windows PowerShell:
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+```
+
+macOS/Linux:
+
+```bash
+source .venv/bin/activate
+```
+
+Install the editor dependency and launch the application:
+
+```bash
+python -m pip install PySide6
+python main.py
+```
+
+## Typical workflow
+
+1. Open the **Setup** tab and select the project scale, canvas size, and target QLabs workspace.
+2. Adjust **Spline Z** if the generated road surface must sit above native workspace geometry.
+3. Use **Build** to add roads, signs, actors, QCars, and editing tools.
+4. Use **Scenery** to place objects manually or auto-fill the editable canvas.
+5. Select an object to edit its position, orientation, dimensions, appearance, and behavior in the inspector.
+6. Save the editable project with **File → Save**. Projects use the `.json` format.
+7. Choose **File → Export QLabs Setup** to generate a standalone `.py` file.
+8. Open the selected workspace in QLabs, then run the exported Python file in an environment with `qvl` installed.
+
+The generated script connects to QLabs, spawns the configured scene, starts QCar2 real-time support when required, and remains active while movement or trigger monitoring is needed.
+
+## Keyboard shortcuts
+
+| Action | Shortcut |
+| --- | --- |
+| New project | `Ctrl+N` |
+| Open project | `Ctrl+O` |
+| Save project | `Ctrl+S` |
+| Save as | `Ctrl+Shift+S` |
+| Import reference image | `Ctrl+I` |
+| Export QLabs setup | `Ctrl+E` |
+| Undo | `Ctrl+Z` |
+| Duplicate selected | `Ctrl+D` |
+| Rotate selected forward | `R` |
+| Rotate selected backward | `Shift+R` |
+| Delete selected | `Delete` |
+
+Mouse-wheel zoom and middle-button panning are available in the graphics view. Objects can be selected and moved directly on the canvas.
+
+## Project and export formats
+
+Editor projects are JSON files containing:
+
+- project scale and canvas dimensions;
+- selected workspace and spline height;
+- environment weather and time settings;
+- optional workspace-cover configuration;
+- scenery-fill settings; and
+- serialized roads, actors, triggers, paths, and scenery objects.
+
+Exported files are standalone Python source files. The calibrated reference rasters and imported tracing images are not embedded as QLabs road actors.
+
+## Repository structure
+
+```text
+QLabs_Track_Maker/
+├── main.py                  # Application entry point
+├── config.py                # Editor defaults and shared constants
+├── registry.py              # Object creation/serialization registry
+├── core/                    # Geometry and traffic-sign data
+├── data/                    # Calibrated workspace references
+├── export/                  # QLabs Python setup generator
+├── items/                   # Roads, actors, scenery, and scene items
+├── services/                # Undo and scenery-fill services
+├── tools/                   # Workspace calibration/validation utilities
+├── ui/                      # Main window, toolbar, view, icons, and themes
+└── workspace/               # Workspace profiles and reference loaders
+```
+
+## Workspace calibration notes
+
+Cityscape/Cityscape Lite and Townscape/Townscape Lite use calibrated visual references derived from QLabs top-down captures. The Townscape calibration uses four published reference locations:
 
 - Open World Origin: `(0.000, 0.000)`
 - Car Spawn Spot: `(0.000, -1.300)`
 - Road Parking 1: `(-13.093, -7.572)`
 - Road Parking 2: `(-18.078, -2.879)`
 
-The marker centers were measured directly in the supplied Townscape Lite top-down screenshot and fitted with a full 2-D affine transform.
+The four-marker Townscape fit produced an RMS residual of **0.0168 m** and a maximum residual of **0.0240 m** at those calibration points. These values measure agreement at the markers; they do not guarantee survey-grade accuracy across every road edge. Revalidate the references after major QLabs workspace, asset, or camera changes.
 
-Marker-fit residuals:
+## Known considerations
 
-- RMS: **0.0168 m**
-- maximum: **0.0240 m**
+- Workspace geometry and actor APIs can vary between QLabs releases.
+- Weather support depends on the selected workspace and QLabs version.
+- Native surfaces may require adjustment of **Spline Z** or the optional workspace cover.
+- Auto-generated scenery and movement paths should be inspected before running an experiment.
+- Keep project JSON files alongside any imported reference images needed for future editing.
 
-To keep the editor reference clean, the final raster is generated from the earlier top-down screenshot that contains **no calibration markers and no QCar**. That clean capture was registered to the marker capture using SIFT feature matching and a RANSAC homography:
+## Development checks
 
-- good feature matches: **137**
-- RANSAC inliers: **102**
-- median inlier reprojection error: **0.548 px**
-- mean inlier reprojection error: **0.714 px**
-
-The four calibrated marker positions were transferred onto the clean capture before the final clean-capture pixel-to-world affine was fitted.
-
-## Files
-
-- `data/cityscape_qlabs_rectified.png` — corrected Cityscape raster from v2.2.
-- `data/cityscape_reference.json` — Cityscape reference/calibration metadata.
-- `data/townscape_qlabs_rectified.png` — corrected, clean, world-aligned Townscape raster.
-- `data/townscape_reference.json` — four-marker Townscape calibration and registration metadata.
-- `docs/townscape_qlabs_rectified_validation.png` — Townscape raster with 5 m grid, world axes and the four exact reference points.
-- `tools/townscape_validate_reference.py` — spawns the four temporary calibration markers.
-
-## Editor use
-
-Run:
+Run a syntax check without launching the GUI:
 
 ```bash
-python main.py
+python -m compileall main.py config.py registry.py core export items services ui workspace
 ```
 
-Select **Workspace → Townscape** or **Workspace → Townscape Lite**, then press **Fit Workspace**.
-
-The raster is a locked placement guide only. It is not selectable and is never exported as QLabs road geometry.
-
-## Accuracy note
-
-The reported marker residual quantifies agreement at the four calibration points in the supplied top-down capture. It should not be interpreted as centimetre-level survey accuracy across every road edge. The reference remains a calibrated visual placement guide and should be revalidated after major QLabs workspace/camera changes.
-
-
-## v2.5 workspace-fit / Z defaults
-
-- Cityscape and Cityscape Lite now share the same calibrated Cityscape map.
-- Townscape and Townscape Lite continue to share the validated Townscape map.
-- Selecting any of those four compact mapped workspaces automatically sizes the editable canvas around the calibrated map and then fits the viewport to it.
-- Saved JSON projects keep their explicitly saved canvas dimensions when reopened.
-- Native track/spawn base Z defaults are workspace-specific: Plane/Custom = 0.20 m, Cityscape/Cityscape Lite = 0.50 m, Townscape/Townscape Lite = 0.50 m, Open Road = 1.20 m.  The toolbar value remains editable and saved per project.
+For a clean repository, Python bytecode caches (`__pycache__`) should normally be ignored rather than committed.
