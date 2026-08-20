@@ -95,8 +95,8 @@ class TopControlBar(QWidget):
 
         setup_page = QWidget()
         self.settings_row = QHBoxLayout(setup_page)
-        self.settings_row.setContentsMargins(7, 6, 7, 6)
-        self.settings_row.setSpacing(7)
+        self.settings_row.setContentsMargins(5, 6, 5, 6)
+        self.settings_row.setSpacing(5)
 
         build_page = QWidget()
         self.tools_row = QHBoxLayout(build_page)
@@ -145,6 +145,13 @@ class TopControlBar(QWidget):
         label.setMinimumWidth(42)
         return label
 
+    @staticmethod
+    def _setting_label(text: str) -> QLabel:
+        """A setup-row label that remains readable under layout pressure."""
+        label = QLabel(text)
+        label.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred)
+        return label
+
     def _icon_button(
         self,
         kind: str,
@@ -176,9 +183,9 @@ class TopControlBar(QWidget):
         row = self.settings_row
 
         # Project scale
-        row.addWidget(QLabel("Scale"))
+        row.addWidget(self._setting_label("Scale"))
         self.project_scale_combo = QComboBox()
-        self.project_scale_combo.setMinimumWidth(82)
+        self.project_scale_combo.setFixedWidth(102)
         for name, factor in PROJECT_SCALES:
             self.project_scale_combo.addItem(name, factor)
         self.project_scale_combo.addItem("Custom", None)
@@ -211,22 +218,22 @@ class TopControlBar(QWidget):
 
         # Editable canvas. The rectangle is centered on world origin and acts
         # as the real design boundary for manual editing and scenery fill.
-        row.addWidget(QLabel("Canvas"))
-        row.addWidget(QLabel("W"))
+        row.addWidget(self._setting_label("Canvas"))
+        row.addWidget(self._setting_label("W"))
         self.canvas_width_spin = self.window._make_spinbox(
             MIN_CANVAS_SIZE_M, MAX_CANVAS_SIZE_M, 10.0, 0, " m"
         )
-        self.canvas_width_spin.setFixedWidth(118)
+        self.canvas_width_spin.setFixedWidth(104)
         self.canvas_width_spin.setValue(DEFAULT_CANVAS_WIDTH_M)
         self.canvas_width_spin.setToolTip("Editable canvas width")
         self.canvas_width_spin.valueChanged.connect(self.window.canvas_area_changed)
         row.addWidget(self.canvas_width_spin)
 
-        row.addWidget(QLabel("H"))
+        row.addWidget(self._setting_label("H"))
         self.canvas_height_spin = self.window._make_spinbox(
             MIN_CANVAS_SIZE_M, MAX_CANVAS_SIZE_M, 10.0, 0, " m"
         )
-        self.canvas_height_spin.setFixedWidth(118)
+        self.canvas_height_spin.setFixedWidth(104)
         self.canvas_height_spin.setValue(DEFAULT_CANVAS_HEIGHT_M)
         self.canvas_height_spin.setToolTip("Editable canvas height")
         self.canvas_height_spin.valueChanged.connect(self.window.canvas_area_changed)
@@ -243,9 +250,9 @@ class TopControlBar(QWidget):
         row.addWidget(self._separator())
 
         # Workspace
-        row.addWidget(QLabel("Workspace"))
+        row.addWidget(self._setting_label("Workspace"))
         self.workspace_mode_combo = QComboBox()
-        self.workspace_mode_combo.setMinimumWidth(146)
+        self.workspace_mode_combo.setFixedWidth(138)
         self.workspace_mode_combo.addItem("Plane / Custom", WORKSPACE_CUSTOM)
         self.workspace_mode_combo.addItem("Open Road", WORKSPACE_OPEN_ROAD)
         self.workspace_mode_combo.addItem("Cityscape", WORKSPACE_CITYSCAPE)
@@ -263,11 +270,11 @@ class TopControlBar(QWidget):
         )
         row.addWidget(self.workspace_mode_combo)
 
-        row.addWidget(QLabel("Spline Z"))
+        row.addWidget(self._setting_label("Spline Z"))
         self.workspace_spline_z_spin = self.window._make_spinbox(
             -20.0, 1000.0, 0.05, 2, " m"
         )
-        self.workspace_spline_z_spin.setFixedWidth(116)
+        self.workspace_spline_z_spin.setFixedWidth(104)
         self.workspace_spline_z_spin.setValue(
             workspace_mode_default_spline_z(WORKSPACE_CUSTOM)
         )
@@ -350,7 +357,7 @@ class TopControlBar(QWidget):
         row.addWidget(self.environment_enabled_checkbox)
 
         self.weather_combo = QComboBox()
-        self.weather_combo.setMinimumWidth(112)
+        self.weather_combo.setFixedWidth(108)
         for label, value in WEATHER_PRESETS:
             self.weather_combo.addItem(label, value)
         self.weather_combo.currentIndexChanged.connect(
@@ -363,7 +370,7 @@ class TopControlBar(QWidget):
         self.time_of_day_spin.setSingleStep(0.5)
         self.time_of_day_spin.setDecimals(2)
         self.time_of_day_spin.setKeyboardTracking(False)
-        self.time_of_day_spin.setFixedWidth(104)
+        self.time_of_day_spin.setFixedWidth(96)
         self.time_of_day_spin.setValue(12.0)
         self.time_of_day_spin.setToolTip(
             "QLabs time of day (HH:MM; 0.5-hour steps)"
@@ -374,9 +381,9 @@ class TopControlBar(QWidget):
         row.addWidget(self.time_of_day_spin)
 
         row.addWidget(self._separator())
-        row.addWidget(QLabel("Theme"))
+        row.addWidget(self._setting_label("Theme"))
         self.theme_combo = QComboBox()
-        self.theme_combo.setFixedWidth(96)
+        self.theme_combo.setFixedWidth(90)
         self.theme_combo.addItem("System", "system")
         self.theme_combo.addItem("Light", "light")
         self.theme_combo.addItem("Dark", "dark")
