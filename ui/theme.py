@@ -48,10 +48,6 @@ QCheckBox::indicator {{ width: 15px; height: 15px; border: 1px solid {c['border'
 QCheckBox::indicator:hover {{ border-color: {c['accent']}; }}
 QCheckBox::indicator:checked {{ background: {c['accent']}; border-color: {c['accent']}; }}
 QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox {{ background: {c['field']}; color: {c['text']}; border: 1px solid {c['border']}; border-radius: 6px; min-height: 28px; padding: 1px 8px; selection-background-color: {c['accent']}; }}
-QSpinBox, QDoubleSpinBox {{ padding-right: 27px; }}
-QSpinBox::up-button, QDoubleSpinBox::up-button {{ subcontrol-origin: border; subcontrol-position: top right; width: 24px; height: 14px; border: 0; border-left: 1px solid {c['border']}; border-bottom: 1px solid {c['border']}; border-top-right-radius: 5px; background: {c['card']}; }}
-QSpinBox::down-button, QDoubleSpinBox::down-button {{ subcontrol-origin: border; subcontrol-position: bottom right; width: 24px; height: 14px; border: 0; border-left: 1px solid {c['border']}; border-bottom-right-radius: 5px; background: {c['card']}; }}
-QSpinBox::up-button:hover, QDoubleSpinBox::up-button:hover, QSpinBox::down-button:hover, QDoubleSpinBox::down-button:hover {{ background: {c['hover']}; }}
 QLineEdit:hover, QComboBox:hover, QSpinBox:hover, QDoubleSpinBox:hover {{ border-color: {c['muted']}; }}
 QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus {{ border: 1px solid {c['accent']}; }}
 QComboBox::drop-down {{ width: 24px; border: 0; border-left: 1px solid {c['border']}; }}
