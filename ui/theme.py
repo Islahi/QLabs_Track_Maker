@@ -1,5 +1,7 @@
 """System-aware Windows 11 inspired visual theme."""
 
+from pathlib import Path
+
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication
 
@@ -27,6 +29,11 @@ def app_stylesheet(dark: bool) -> str:
             accent="#1678a5", accent_text="#12678f", tooltip="#263640",
         )
 
+    arrow_variant = "dark" if dark else "light"
+    asset_dir = Path(__file__).with_name("assets")
+    spin_up_url = (asset_dir / f"spin_up_{arrow_variant}.svg").as_posix()
+    spin_down_url = (asset_dir / f"spin_down_{arrow_variant}.svg").as_posix()
+
     return f"""
 QMainWindow, QWidget {{ background-color: {c['bg']}; color: {c['text']}; font-family: "Segoe UI"; font-size: 10pt; }}
 QMenuBar {{ background: {c['surface']}; color: {c['text']}; border-bottom: 1px solid {c['border']}; padding: 2px 6px; }}
@@ -48,6 +55,12 @@ QCheckBox::indicator {{ width: 15px; height: 15px; border: 1px solid {c['border'
 QCheckBox::indicator:hover {{ border-color: {c['accent']}; }}
 QCheckBox::indicator:checked {{ background: {c['accent']}; border-color: {c['accent']}; }}
 QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox {{ background: {c['field']}; color: {c['text']}; border: 1px solid {c['border']}; border-radius: 6px; min-height: 28px; padding: 1px 8px; selection-background-color: {c['accent']}; }}
+QSpinBox, QDoubleSpinBox {{ padding-right: 21px; }}
+QSpinBox::up-button, QDoubleSpinBox::up-button {{ subcontrol-origin: border; subcontrol-position: top right; width: 18px; border: 0; border-left: 1px solid {c['border']}; border-bottom: 1px solid {c['border']}; border-top-right-radius: 5px; background: {c['card']}; }}
+QSpinBox::down-button, QDoubleSpinBox::down-button {{ subcontrol-origin: border; subcontrol-position: bottom right; width: 18px; border: 0; border-left: 1px solid {c['border']}; border-bottom-right-radius: 5px; background: {c['card']}; }}
+QSpinBox::up-button:hover, QDoubleSpinBox::up-button:hover, QSpinBox::down-button:hover, QDoubleSpinBox::down-button:hover {{ background: {c['hover']}; }}
+QSpinBox::up-arrow, QDoubleSpinBox::up-arrow {{ image: url("{spin_up_url}"); width: 9px; height: 6px; }}
+QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {{ image: url("{spin_down_url}"); width: 9px; height: 6px; }}
 QLineEdit:hover, QComboBox:hover, QSpinBox:hover, QDoubleSpinBox:hover {{ border-color: {c['muted']}; }}
 QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus {{ border: 1px solid {c['accent']}; }}
 QComboBox::drop-down {{ width: 24px; border: 0; border-left: 1px solid {c['border']}; }}
