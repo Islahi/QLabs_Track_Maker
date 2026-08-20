@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QSizePolicy,
+    QTabWidget,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -84,43 +85,39 @@ class TopControlBar(QWidget):
         self.setObjectName("topControlBar")
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
-        self.setStyleSheet(
-            "#topControlBar {"
-            "background: #202327;"
-            "border: 1px solid #383d43;"
-            "border-radius: 6px;"
-            "}"
-            "QToolButton {"
-            "background: #2a2e33;"
-            "border: 1px solid #41464d;"
-            "border-radius: 5px;"
-            "padding: 3px;"
-            "}"
-            "QToolButton:hover { background: #343a40; border-color: #5a626b; }"
-            "QToolButton:pressed { background: #1f6f9d; }"
-            "QToolButton:checked { background: #235d78; border-color: #4eb2e8; }"
-            "QLabel#toolCategory { color: #aeb6bf; font-size: 10px; font-weight: 600; }"
-        )
-
         root = QVBoxLayout(self)
-        root.setContentsMargins(8, 6, 8, 6)
-        root.setSpacing(5)
+        root.setContentsMargins(10, 8, 10, 8)
+        root.setSpacing(7)
 
-        self.settings_row = QHBoxLayout()
+        self.tool_tabs = QTabWidget()
+        self.tool_tabs.setDocumentMode(True)
+        self.tool_tabs.setUsesScrollButtons(True)
+
+        setup_page = QWidget()
+        self.settings_row = QHBoxLayout(setup_page)
+        self.settings_row.setContentsMargins(7, 6, 7, 6)
         self.settings_row.setSpacing(7)
-        root.addLayout(self.settings_row)
 
-        self.tools_row = QHBoxLayout()
+        build_page = QWidget()
+        self.tools_row = QHBoxLayout(build_page)
+        self.tools_row.setContentsMargins(7, 6, 7, 6)
         self.tools_row.setSpacing(4)
-        root.addLayout(self.tools_row)
 
-        self.gallery_row = QHBoxLayout()
+        scenery_page = QWidget()
+        self.gallery_row = QHBoxLayout(scenery_page)
+        self.gallery_row.setContentsMargins(7, 6, 7, 6)
         self.gallery_row.setSpacing(4)
-        root.addLayout(self.gallery_row)
 
-        self.platform_row = QHBoxLayout()
+        cover_page = QWidget()
+        self.platform_row = QHBoxLayout(cover_page)
+        self.platform_row.setContentsMargins(7, 6, 7, 6)
         self.platform_row.setSpacing(6)
-        root.addLayout(self.platform_row)
+
+        self.tool_tabs.addTab(setup_page, "Setup")
+        self.tool_tabs.addTab(build_page, "Build")
+        self.tool_tabs.addTab(scenery_page, "Scenery")
+        self.tool_tabs.addTab(cover_page, "Cover")
+        root.addWidget(self.tool_tabs)
 
         self._build_settings_row()
         self._build_tools_row()
@@ -136,7 +133,7 @@ class TopControlBar(QWidget):
     def _separator() -> QFrame:
         line = QFrame()
         line.setFrameShape(QFrame.Shape.VLine)
-        line.setFrameShadow(QFrame.Shadow.Sunken)
+        line.setFrameShadow(QFrame.Shadow.Plain)
         line.setFixedHeight(28)
         return line
 
@@ -145,7 +142,7 @@ class TopControlBar(QWidget):
         label = QLabel(text)
         label.setObjectName("toolCategory")
         label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        label.setMinimumWidth(38)
+        label.setMinimumWidth(42)
         return label
 
     def _icon_button(
@@ -158,10 +155,10 @@ class TopControlBar(QWidget):
         checked: bool = False,
     ) -> QToolButton:
         button = QToolButton()
-        button.setIcon(make_tool_icon(kind, 30))
-        button.setIconSize(QSize(26, 26))
+        button.setIcon(make_tool_icon(kind, 32))
+        button.setIconSize(QSize(27, 27))
         button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
-        button.setFixedSize(36, 34)
+        button.setFixedSize(38, 36)
         button.setToolTip(tooltip)
         button.setCheckable(checkable)
         if checkable:
@@ -194,7 +191,7 @@ class TopControlBar(QWidget):
         self.custom_scale_denominator = self.window._make_spinbox(
             1.0, 1000.0, 1.0, 2
         )
-        self.custom_scale_denominator.setFixedWidth(78)
+        self.custom_scale_denominator.setFixedWidth(90)
         self.custom_scale_denominator.setValue(10.0)
         self.custom_scale_denominator.valueChanged.connect(
             self.window.custom_scale_changed
@@ -208,7 +205,7 @@ class TopControlBar(QWidget):
         self.scale_preview_label.setToolTip(
             "Design dimensions remain in full-scale meters; this preview shows the effective QLabs scale."
         )
-        row.addWidget(self.scale_preview_label)
+        self.scale_preview_label.hide()
 
         row.addWidget(self._separator())
 
@@ -219,7 +216,7 @@ class TopControlBar(QWidget):
         self.canvas_width_spin = self.window._make_spinbox(
             MIN_CANVAS_SIZE_M, MAX_CANVAS_SIZE_M, 10.0, 0, " m"
         )
-        self.canvas_width_spin.setFixedWidth(86)
+        self.canvas_width_spin.setFixedWidth(118)
         self.canvas_width_spin.setValue(DEFAULT_CANVAS_WIDTH_M)
         self.canvas_width_spin.setToolTip("Editable canvas width")
         self.canvas_width_spin.valueChanged.connect(self.window.canvas_area_changed)
@@ -229,7 +226,7 @@ class TopControlBar(QWidget):
         self.canvas_height_spin = self.window._make_spinbox(
             MIN_CANVAS_SIZE_M, MAX_CANVAS_SIZE_M, 10.0, 0, " m"
         )
-        self.canvas_height_spin.setFixedWidth(86)
+        self.canvas_height_spin.setFixedWidth(118)
         self.canvas_height_spin.setValue(DEFAULT_CANVAS_HEIGHT_M)
         self.canvas_height_spin.setToolTip("Editable canvas height")
         self.canvas_height_spin.valueChanged.connect(self.window.canvas_area_changed)
@@ -270,7 +267,7 @@ class TopControlBar(QWidget):
         self.workspace_spline_z_spin = self.window._make_spinbox(
             -20.0, 1000.0, 0.05, 2, " m"
         )
-        self.workspace_spline_z_spin.setFixedWidth(82)
+        self.workspace_spline_z_spin.setFixedWidth(116)
         self.workspace_spline_z_spin.setValue(
             workspace_mode_default_spline_z(WORKSPACE_CUSTOM)
         )
@@ -342,7 +339,7 @@ class TopControlBar(QWidget):
         # Outdoor environment
         # Keep the control compact, but make its meaning obvious at a glance:
         #     ☀ Environment    Clear skies    🕒 12:00
-        self.environment_enabled_checkbox = QCheckBox("☀ Environment")
+        self.environment_enabled_checkbox = QCheckBox("Environment")
         self.environment_enabled_checkbox.setToolTip(
             "Apply outdoor environment settings on export"
         )
@@ -361,16 +358,12 @@ class TopControlBar(QWidget):
         )
         row.addWidget(self.weather_combo)
 
-        time_icon = QLabel("🕒")
-        time_icon.setToolTip("QLabs time of day")
-        row.addWidget(time_icon)
-
         self.time_of_day_spin = TimeOfDaySpinBox()
         self.time_of_day_spin.setRange(0.0, 24.0)
         self.time_of_day_spin.setSingleStep(0.5)
         self.time_of_day_spin.setDecimals(2)
         self.time_of_day_spin.setKeyboardTracking(False)
-        self.time_of_day_spin.setFixedWidth(82)
+        self.time_of_day_spin.setFixedWidth(104)
         self.time_of_day_spin.setValue(12.0)
         self.time_of_day_spin.setToolTip(
             "QLabs time of day (HH:MM; 0.5-hour steps)"
@@ -379,6 +372,21 @@ class TopControlBar(QWidget):
             self.window.environment_settings_changed
         )
         row.addWidget(self.time_of_day_spin)
+
+        row.addWidget(self._separator())
+        row.addWidget(QLabel("Theme"))
+        self.theme_combo = QComboBox()
+        self.theme_combo.setFixedWidth(96)
+        self.theme_combo.addItem("System", "system")
+        self.theme_combo.addItem("Light", "light")
+        self.theme_combo.addItem("Dark", "dark")
+        theme_index = self.theme_combo.findData(self.window.theme_preference)
+        self.theme_combo.setCurrentIndex(max(0, theme_index))
+        self.theme_combo.setToolTip("Application appearance")
+        self.theme_combo.currentIndexChanged.connect(
+            self.window.theme_preference_changed
+        )
+        row.addWidget(self.theme_combo)
 
         row.addStretch(1)
 
@@ -407,7 +415,6 @@ class TopControlBar(QWidget):
         row.addWidget(self._icon_button("wall", "Median / Barrier Wall", self.window.add_median_wall))
 
         row.addWidget(self._separator())
-        row.addWidget(self._category("TRACE"))
         row.addWidget(
             self._icon_button(
                 "reference_image",
@@ -417,34 +424,33 @@ class TopControlBar(QWidget):
         )
 
         row.addWidget(self._separator())
-        row.addWidget(self._category("TRAFFIC"))
+        row.addWidget(self._category("SIGNS"))
         row.addWidget(self._icon_button("traffic_light", "Traffic Light", self.window.add_traffic_light))
         row.addWidget(self._icon_button("stop", "Stop Sign", self.window.add_stop_sign))
         row.addWidget(self._icon_button("yield", "Yield Sign", self.window.add_yield_sign))
         row.addWidget(self._icon_button("roundabout", "Roundabout Sign", self.window.add_roundabout_sign))
 
         self.catalog_sign_combo = QComboBox()
-        self.catalog_sign_combo.setFixedWidth(132)
-        self.catalog_sign_combo.setToolTip("Validated custom traffic sign to add")
+        self.catalog_sign_combo.setFixedWidth(178)
         for sign_key, sign_label, _family, _short in TRAFFIC_SIGN_CATALOG:
             self.catalog_sign_combo.addItem(sign_label, sign_key)
         row.addWidget(self.catalog_sign_combo)
 
         row.addWidget(self._icon_button(
             "traffic_sign_catalog",
-            "Add selected validated custom traffic sign",
+            "",
             self.window.add_catalog_traffic_sign,
         ))
         row.addWidget(self._icon_button("crosswalk", "Crosswalk", self.window.add_crosswalk))
 
         row.addWidget(self._separator())
-        row.addWidget(self._category("EXP"))
+        row.addWidget(self._category("ACTORS"))
         row.addWidget(self._icon_button("person", "Pedestrian", self.window.add_person))
         row.addWidget(self._icon_button("animal", "Animal", self.window.add_animal))
         row.addWidget(self._icon_button("trigger", "QCar Trigger Zone", self.window.add_trigger_zone))
 
         row.addWidget(self._separator())
-        row.addWidget(self._category("QCAR"))
+        row.addWidget(self._category("CARS"))
         row.addWidget(self._icon_button("qcar_start", "QCar2 Start", self.window.add_qcar2_start))
         row.addWidget(self._icon_button("qcar_env", "Environment QCar2", self.window.add_secondary_qcar))
 
@@ -463,7 +469,9 @@ class TopControlBar(QWidget):
         row.addWidget(self.duplicate_button)
 
         self.rotate_btn = self._icon_button(
-            "rotate", "Rotate selected +15° (R)", lambda: self.window.rotate_selected(self.window.rotation_step_deg)
+            "rotate",
+            f"Rotate selected +{self.window.rotation_step_deg:g}° (R)",
+            lambda: self.window.rotate_selected(self.window.rotation_step_deg),
         )
         row.addWidget(self.rotate_btn)
 
@@ -471,7 +479,10 @@ class TopControlBar(QWidget):
         self.rotation_step_combo.setFixedWidth(62)
         for step in (0.5, 1, 5, 15, 30, 45, 90):
             self.rotation_step_combo.addItem(f"{step}°", float(step))
-        self.rotation_step_combo.setCurrentText("15°")
+        rotation_index = self.rotation_step_combo.findData(
+            float(self.window.rotation_step_deg)
+        )
+        self.rotation_step_combo.setCurrentIndex(max(0, rotation_index))
         self.rotation_step_combo.setToolTip("Rotation step. Exact angles can also be typed in the Properties panel.")
         self.rotation_step_combo.currentIndexChanged.connect(
             self.window.rotation_step_changed
@@ -555,7 +566,7 @@ class TopControlBar(QWidget):
         self.roadside_reserve_spin = self.window._make_spinbox(
             0.0, 30.0, 0.5, 1, " m"
         )
-        self.roadside_reserve_spin.setFixedWidth(82)
+        self.roadside_reserve_spin.setFixedWidth(114)
         self.roadside_reserve_spin.setValue(DEFAULT_ROADSIDE_RESERVE_M)
         self.roadside_reserve_spin.setToolTip(
             "Clear roadside reserve beyond the road edge for signs and manually placed roadside objects"
@@ -565,11 +576,13 @@ class TopControlBar(QWidget):
         )
         row.addWidget(self.roadside_reserve_spin)
 
-        row.addWidget(QLabel("Bldg"))
+        building_band_label = QLabel("Building range")
+        building_band_label.setToolTip("Maximum building distance from a road edge")
+        row.addWidget(building_band_label)
         self.building_road_band_spin = self.window._make_spinbox(
             3.0, 80.0, 1.0, 1, " m"
         )
-        self.building_road_band_spin.setFixedWidth(82)
+        self.building_road_band_spin.setFixedWidth(114)
         self.building_road_band_spin.setValue(DEFAULT_BUILDING_ROAD_BAND_M)
         self.building_road_band_spin.setToolTip(
             "Maximum distance from a road edge where auto-filled buildings may be placed"
@@ -637,7 +650,7 @@ class TopControlBar(QWidget):
         self.workspace_platform_top_z_spin = self.window._make_spinbox(
             0.05, 1000.0, 5.0, 1, " m"
         )
-        self.workspace_platform_top_z_spin.setFixedWidth(88)
+        self.workspace_platform_top_z_spin.setFixedWidth(124)
         default_profile = WORKSPACE_PLATFORM_PROFILES[DEFAULT_WORKSPACE_PLATFORM_PROFILE]
         self.workspace_platform_top_z_spin.setValue(
             float(default_profile["default_top_z_m"])
@@ -656,7 +669,7 @@ class TopControlBar(QWidget):
         self.workspace_platform_bottom_z_spin = self.window._make_spinbox(
             -1000.0, 999.0, 5.0, 1, " m"
         )
-        self.workspace_platform_bottom_z_spin.setFixedWidth(88)
+        self.workspace_platform_bottom_z_spin.setFixedWidth(124)
         self.workspace_platform_bottom_z_spin.setValue(
             float(default_profile["default_bottom_z_m"])
         )
@@ -711,6 +724,7 @@ class TopControlBar(QWidget):
             "environment_enabled_checkbox",
             "weather_combo",
             "time_of_day_spin",
+            "theme_combo",
             "endpoint_snap_checkbox",
             "rotation_step_combo",
             "rotate_btn",

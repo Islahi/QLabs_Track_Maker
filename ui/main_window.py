@@ -9,7 +9,7 @@ import json
 import math
 from pathlib import Path
 
-from PySide6.QtCore import QPointF, QRectF, Qt
+from PySide6.QtCore import QPointF, QRectF, QSettings, Qt
 from PySide6.QtGui import (
     QAction,
     QColor,
@@ -21,6 +21,7 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import (
     QCheckBox,
+    QApplication,
     QComboBox,
     QDoubleSpinBox,
     QFileDialog,
@@ -148,6 +149,7 @@ from registry import create_track_item_from_dict
 from ui.scene import TrackScene
 from ui.view import TrackView
 from ui.top_bar import TopControlBar
+from ui.theme import app_stylesheet, system_uses_dark_theme
 from services.scenery_filler import SceneryAutoFiller
 from services.undo_manager import SnapshotUndoManager
 
@@ -157,8 +159,28 @@ class TrackEditorWindow(QMainWindow):
     def __init__(self):
         super().__init__()
 
+        self.user_settings = QSettings("QLabs", "TrackEditor")
+        self.theme_preference = str(
+            self.user_settings.value("appearance/theme", "system")
+        ).lower()
+        if self.theme_preference not in {"system", "light", "dark"}:
+            self.theme_preference = "system"
+        self._dark_theme = (
+            system_uses_dark_theme()
+            if self.theme_preference == "system"
+            else self.theme_preference == "dark"
+        )
+        self.setStyleSheet(app_stylesheet(self._dark_theme))
+
         self.current_file: Path | None = None
-        self.rotation_step_deg = ROTATION_STEP_DEG
+        try:
+            self.rotation_step_deg = float(
+                self.user_settings.value("editor/rotation_step", 45.0)
+            )
+        except (TypeError, ValueError):
+            self.rotation_step_deg = 45.0
+        if self.rotation_step_deg not in {0.5, 1.0, 5.0, 15.0, 30.0, 45.0, 90.0}:
+            self.rotation_step_deg = 45.0
         self._property_refreshing = False
         self._guide_refreshing = False
         self._marking_refreshing = False
@@ -243,6 +265,10 @@ class TrackEditorWindow(QMainWindow):
         self.scenery_filler = SceneryAutoFiller(self.scene, self.view)
 
         self._build_ui()
+        self.view.set_dark_theme(self._dark_theme)
+        app = QApplication.instance()
+        if app is not None:
+            app.styleHints().colorSchemeChanged.connect(self._system_theme_changed)
         self._build_actions()
         self._set_workspace_from_data({})
         self._set_workspace_platform_from_data({})
@@ -257,6 +283,27 @@ class TrackEditorWindow(QMainWindow):
     # ------------------------------------------------------------
     # UI helpers
     # ------------------------------------------------------------
+
+    def _system_theme_changed(self, color_scheme):
+        """Apply Windows/desktop appearance changes without restarting."""
+        if self.theme_preference != "system":
+            return
+        dark = color_scheme == Qt.ColorScheme.Dark
+        if dark == self._dark_theme:
+            return
+        self._dark_theme = dark
+        self.setStyleSheet(app_stylesheet(dark))
+        self.view.set_dark_theme(dark)
+
+    def theme_preference_changed(self):
+        """Apply and remember System, Light, or Dark appearance selection."""
+        preference = str(self.theme_combo.currentData() or "system")
+        self.theme_preference = preference
+        self.user_settings.setValue("appearance/theme", preference)
+        dark = system_uses_dark_theme() if preference == "system" else preference == "dark"
+        self._dark_theme = dark
+        self.setStyleSheet(app_stylesheet(dark))
+        self.view.set_dark_theme(dark)
 
     def _make_spinbox(
         self,
@@ -322,8 +369,9 @@ class TrackEditorWindow(QMainWindow):
 
         # Dedicated right-side inspector remains independent and scrollable.
         inspector_contents = QWidget()
-        inspector_contents.setMinimumWidth(330)
-        inspector_contents.setMaximumWidth(360)
+        inspector_contents.setObjectName("inspectorPanel")
+        inspector_contents.setMinimumWidth(370)
+        inspector_contents.setMaximumWidth(410)
         inspector_layout = QVBoxLayout(inspector_contents)
         inspector_layout.setContentsMargins(6, 0, 6, 0)
         inspector_layout.setSpacing(6)
@@ -353,10 +401,8 @@ class TrackEditorWindow(QMainWindow):
         info_layout.addLayout(info_control_row)
 
         self.selection_label = QLabel("None")
+        self.selection_label.setObjectName("selectionSummary")
         self.selection_label.setWordWrap(True)
-        self.selection_label.setStyleSheet(
-            "background: #20242a; padding: 8px; border-radius: 4px;"
-        )
         info_layout.addWidget(self.selection_label)
         inspector_layout.addWidget(self.info_group)
 
@@ -369,6 +415,9 @@ class TrackEditorWindow(QMainWindow):
         self.prop_x = self._make_spinbox(-10000.0, 10000.0, 0.10, 2, " m")
         self.prop_y = self._make_spinbox(-10000.0, 10000.0, 0.10, 2, " m")
         self.prop_rotation = self._make_spinbox(0.0, 359.99, 0.10, 2, "°")
+        self.prop_rotation.setToolTip(
+            "Actor orientation. Follow the cyan FRONT arrow on the canvas."
+        )
         self.prop_length = self._make_spinbox(1.0, 1000.0, 1.0, 1, " m")
         self.prop_width = self._make_spinbox(0.05, 50.0, 0.05, 2, " m")
         self.prop_radius = self._make_spinbox(1.0, 1000.0, 1.0, 1, " m")
@@ -377,11 +426,11 @@ class TrackEditorWindow(QMainWindow):
 
         self.properties_form.addRow("X", self.prop_x)
         self.properties_form.addRow("Y", self.prop_y)
-        self.properties_form.addRow("Rotation / angle", self.prop_rotation)
+        self.properties_form.addRow("Orientation", self.prop_rotation)
         self.properties_form.addRow("Length", self.prop_length)
         self.properties_form.addRow("Width", self.prop_width)
         self.properties_form.addRow("Radius", self.prop_radius)
-        self.properties_form.addRow("Arm length", self.prop_arm)
+        self.properties_form.addRow("Arm", self.prop_arm)
         self.properties_form.addRow("Height", self.prop_height)
 
         self.prop_x.valueChanged.connect(self.apply_position_properties)
@@ -399,7 +448,7 @@ class TrackEditorWindow(QMainWindow):
         self.prop_effective.setStyleSheet(
             "background: #20242a; padding: 6px; border-radius: 4px; color: #cfd6de;"
         )
-        self.properties_form.addRow("QLabs effective", self.prop_effective)
+        self.prop_effective.hide()
 
         inspector_layout.addWidget(self.properties_group)
 
@@ -444,16 +493,6 @@ class TrackEditorWindow(QMainWindow):
         reference_button_layout.addWidget(self.reference_replace_button)
         reference_button_layout.addWidget(self.reference_fit_canvas_button)
 
-        reference_note = QLabel(
-            "Drag the image to position it. Drag the cyan bottom-right handle "
-            "to resize it. Exact X/Y, size and angle can also be typed here. "
-            "Reference images are editor-only and are not exported to QLabs."
-        )
-        reference_note.setWordWrap(True)
-        reference_note.setStyleSheet(
-            "color: #aeb6bf; font-size: 11px;"
-        )
-
         reference_form.addRow("File", self.prop_reference_file)
         reference_form.addRow("Width", self.prop_reference_width)
         reference_form.addRow("Height", self.prop_reference_height)
@@ -461,7 +500,6 @@ class TrackEditorWindow(QMainWindow):
         reference_form.addRow(self.prop_reference_lock_aspect)
         reference_form.addRow(self.prop_reference_lock_position)
         reference_form.addRow(reference_button_row)
-        reference_form.addRow(reference_note)
 
         self.prop_reference_width.valueChanged.connect(
             lambda value: self.apply_reference_image_size(
@@ -505,20 +543,22 @@ class TrackEditorWindow(QMainWindow):
             row_layout.setContentsMargins(0, 0, 0, 0)
             row_layout.setSpacing(5)
 
-            enabled = QCheckBox("On")
+            enabled = QCheckBox()
+            enabled.setToolTip("Show this marking")
             color = QComboBox()
             for color_name in ROAD_MARKING_COLOR_RGB:
                 color.addItem(color_name.title(), color_name)
-            color.setMinimumWidth(78)
+            color.setFixedWidth(92)
 
             style = QComboBox()
             for label, value in ROAD_MARKING_STYLES:
                 style.addItem(label, value)
-            style.setMinimumWidth(72)
+            style.setFixedWidth(92)
 
             row_layout.addWidget(enabled)
-            row_layout.addWidget(color, 1)
-            row_layout.addWidget(style, 1)
+            row_layout.addWidget(color)
+            row_layout.addWidget(style)
+            row_layout.addStretch(1)
             return row_widget, enabled, color, style
 
         (
@@ -547,17 +587,9 @@ class TrackEditorWindow(QMainWindow):
         ) = _make_marking_row()
 
         markings_form.addRow("Edge A", self.prop_marking_edge_a_row)
-        markings_form.addRow("Center line", self.prop_marking_center_row)
+        markings_form.addRow("Center", self.prop_marking_center_row)
         markings_form.addRow("Edge B", self.prop_marking_edge_b_row)
-        markings_form.addRow("Road-end bar", self.prop_marking_end_bar_row)
-
-        markings_note = QLabel(
-            "Each road marking can be switched on/off and given its own color "
-            "and solid/dashed style. Edge A/B are the two road boundaries."
-        )
-        markings_note.setWordWrap(True)
-        markings_note.setStyleSheet("color: #aeb6bf; font-size: 11px;")
-        markings_form.addRow(markings_note)
+        markings_form.addRow("End bar", self.prop_marking_end_bar_row)
 
         marking_editors = (
             self.prop_marking_edge_a,
@@ -601,14 +633,6 @@ class TrackEditorWindow(QMainWindow):
             self.apply_camera_property
         )
         camera_form.addRow("View", self.prop_camera_view)
-
-        camera_note = QLabel(
-            "First person uses QCar2 CAMERA_CSI_FRONT. "
-            "Third person uses CAMERA_TRAILING."
-        )
-        camera_note.setWordWrap(True)
-        camera_note.setStyleSheet("color: #aeb6bf; font-size: 11px;")
-        camera_form.addRow(camera_note)
 
         self.camera_group.setVisible(False)
         inspector_layout.addWidget(self.camera_group)
@@ -889,7 +913,7 @@ class TrackEditorWindow(QMainWindow):
         # --------------------------------------------------------
         # Lane-following guide line
         # --------------------------------------------------------
-        self.guide_group = QGroupBox("LANE-FOLLOWING GUIDE")
+        self.guide_group = QGroupBox("LANE GUIDE")
         guide_form = QFormLayout(self.guide_group)
 
         self.prop_guide_enabled = QCheckBox("Enabled")
@@ -936,21 +960,12 @@ class TrackEditorWindow(QMainWindow):
 
         guide_form.addRow("Guide", self.prop_guide_enabled)
         guide_form.addRow("Position", self.prop_guide_position)
-        guide_form.addRow("Custom offset", self.prop_guide_offset)
+        guide_form.addRow("Offset", self.prop_guide_offset)
         guide_form.addRow("Color", self.prop_guide_color)
-        guide_form.addRow("RGB (0-255)", rgb_widget)
-        guide_form.addRow("Design width", self.prop_guide_width)
+        guide_form.addRow("RGB", rgb_widget)
+        guide_form.addRow("Width", self.prop_guide_width)
         guide_form.addRow("Style", self.prop_guide_style)
-        guide_form.addRow("QLabs width", self.prop_guide_scale_width)
-
-        guide_note = QLabel(
-            "Left/right place the guide at the center of each half of a two-lane road. "
-            "T-junctions and 4-way intersections export guide splines on every straight arm. "
-            "Disable width scaling if a 1:10 line becomes too thin for camera detection."
-        )
-        guide_note.setWordWrap(True)
-        guide_note.setStyleSheet("color: #aeb6bf; font-size: 11px;")
-        guide_form.addRow(guide_note)
+        guide_form.addRow("Scale width", self.prop_guide_scale_width)
 
         self.prop_guide_enabled.toggled.connect(self.apply_guide_properties)
         self.prop_guide_position.currentIndexChanged.connect(self.apply_guide_properties)
@@ -2836,7 +2851,11 @@ class TrackEditorWindow(QMainWindow):
     def rotation_step_changed(self):
         value = self.rotation_step_combo.currentData()
         self.rotation_step_deg = float(value) if value is not None else ROTATION_STEP_DEG
+        self.user_settings.setValue("editor/rotation_step", self.rotation_step_deg)
         self.rotate_btn.setText(f"Rotate +{self.rotation_step_deg:g}°")
+        self.rotate_btn.setToolTip(
+            f"Rotate selected +{self.rotation_step_deg:g}° (R)"
+        )
         self._update_help_text()
 
     def _update_help_text(self):
@@ -4059,7 +4078,8 @@ class TrackEditorWindow(QMainWindow):
         selected = self.scene.selected_track_items()
 
         if len(selected) == 1:
-            self.selection_label.setText(selected[0].selection_text())
+            summary = selected[0].selection_text().splitlines()[0]
+            self.selection_label.setText(summary)
             self._refresh_property_editor(selected[0])
             self._refresh_camera_editor(selected[0])
             self._refresh_actor_editor(selected[0])
