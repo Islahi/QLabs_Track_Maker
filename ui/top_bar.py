@@ -258,8 +258,8 @@ class TopControlBar(QWidget):
         self.workspace_mode_combo.addItem("Studio", WORKSPACE_STUDIO)
         self.workspace_mode_combo.addItem("Warehouse", WORKSPACE_WAREHOUSE)
         self.workspace_mode_combo.setToolTip(
-            "QLabs workspace used by the exported setup. Open Road also has a "
-            "2-D editor reference overlay."
+            "QLabs workspace used by the exported setup. Open Road, Cityscape, "
+            "and Townscape have locked 2-D editor reference overlays."
         )
         self.workspace_mode_combo.currentIndexChanged.connect(
             self.window.workspace_mode_changed

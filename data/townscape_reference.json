@@ -1,52 +1,176 @@
 {
-  "format": "qlabs_workspace_raster_reference",
-  "version": 1,
-  "mode": "townscape",
+  "format": "qlabs_workspace_vector_reference",
+  "version": "2.4",
   "workspace": "Townscape",
+  "mode": "townscape",
+  "compatible_modes": [
+    "townscape",
+    "townscape_lite"
+  ],
   "units": "meters",
   "source": {
     "documentation_page": "https://qlabs.quanserdocs.com/en/latest/Workspaces/Townscape.html",
-    "navigation_image": "https://qlabs.quanserdocs.com/en/latest/_images/townscape_nav_area.png",
-    "note": "Quanser documentation-derived visual placement reference; not surveyed CAD/vector road geometry."
+    "townscape_lite_documentation_page": "https://qlabs.quanserdocs.com/en/latest/Workspaces/Townscape_Lite.html",
+    "source_capture": "User-captured clean Townscape Lite top-down screenshot plus a later four-marker calibration screenshot from the same workspace",
+    "note": "Townscape/Townscape Lite locked road-placement guide. The final raster is generated from the clean top-down capture; a separate four-marker capture supplies the coordinate calibration so the editor reference contains neither calibration cylinders nor a frozen QCar."
   },
-  "world": {
-    "size_x_m": 500.0,
-    "size_y_m": 500.0,
-    "center_x_m": 0.0,
-    "center_y_m": 0.0,
-    "ground_z_m": 0.0
-  },
-  "navigation_area": {
-    "outer_size_x_m": 400.0,
-    "outer_size_y_m": 400.0,
-    "center_x_m": 0.0,
-    "center_y_m": 0.0,
-    "note": "Only the documented outer navigation boundary is drawn; buildings, trees, fences and other obstacles create breaks inside it."
-  },
-  "image": {
-    "filename": "townscape_nav_area.png",
-    "pixel_width": 869,
-    "pixel_height": 614,
-    "world_rect_m": [
-      -250.0,
-      -176.6398158803222,
-      500.0,
-      353.2796317606444
+  "calibration": {
+    "method": "Four-marker affine calibration from the centers of temporary QLabs markers in the supplied Townscape Lite top-down screenshot to Quanser-published XY coordinates. Because the marker capture contains the QCar and marker cylinders, a SIFT/RANSAC homography registers the earlier clean top-down capture to the marker capture; the four calibrated marker locations are then transferred to the clean capture and a clean-capture pixel-to-world affine is fitted for raster rectification.",
+    "status": "four_marker_affine_validated_clean_capture_registered",
+    "marker_capture_size_px": [
+      1919,
+      1079
     ],
-    "calibration": "Aspect-preserving pixel mapping: full documentation image width = 500 m, image center = world origin, identical X/Y meters-per-pixel. This is a baseline calibration because Quanser does not publish image-pixel anchor coordinates for this workspace.",
-    "pixel_to_world_affine": {
+    "clean_capture_size_px": [
+      1919,
+      1079
+    ],
+    "marker_capture_pixel_to_world_affine": {
       "x": [
-        0.5753739930955121,
-        0.0,
-        -250.0
+        0.03845666483325327,
+        -0.0006818872987138375,
+        -31.161786829294456
       ],
       "y": [
-        0.0,
-        -0.5753739930955121,
-        176.6398158803222
+        -0.0005566298422587081,
+        -0.038470174668433096,
+        23.33377902623539
       ]
     },
-    "meters_per_pixel": 0.5753739930955121
+    "clean_capture_pixel_to_world_affine": {
+      "x": [
+        -0.04677778870950565,
+        -0.0012473952302017033,
+        50.975853019870335
+      ],
+      "y": [
+        -0.0014114999875838232,
+        0.0467816526647218,
+        -20.743134925797786
+      ]
+    },
+    "marker_anchor_rms_error_m": 0.01679911378230515,
+    "marker_anchor_max_error_m": 0.02398363325109763,
+    "clean_capture_transferred_anchor_rms_error_m": 0.016436126500334547,
+    "clean_capture_transferred_anchor_max_error_m": 0.023466079763875606,
+    "clean_to_marker_registration": {
+      "feature_method": "SIFT + ratio test + RANSAC homography",
+      "good_matches": 137,
+      "ransac_inliers": 102,
+      "median_inlier_reprojection_error_px": 0.5482829809188843,
+      "mean_inlier_reprojection_error_px": 0.7140598893165588,
+      "max_inlier_reprojection_error_px": 2.981692314147949,
+      "homography_clean_to_marker": [
+        [
+          -1.2173319310985726,
+          -0.05280298937980121,
+          2158.561193568478
+        ],
+        [
+          0.05470406895692255,
+          -1.215321857229019,
+          1115.180156495497
+        ],
+        [
+          4.6016190442879157e-07,
+          2.6931428960292746e-06,
+          1.0
+        ]
+      ]
+    },
+    "marker_anchors": [
+      {
+        "name": "Open World Origin",
+        "marker_pixel": [
+          820.4296296296296,
+          595.0666666666667
+        ],
+        "world_xy": [
+          0.0,
+          0.0
+        ],
+        "color": "pink/red"
+      },
+      {
+        "name": "Car Spawn Spot",
+        "marker_pixel": [
+          821.9041095890411,
+          628.0205479452055
+        ],
+        "world_xy": [
+          0.0,
+          -1.3
+        ],
+        "color": "yellow"
+      },
+      {
+        "name": "Road Parking 1",
+        "marker_pixel": [
+          483.86376811594204,
+          796.4666666666667
+        ],
+        "world_xy": [
+          -13.093,
+          -7.572
+        ],
+        "color": "cyan/blue"
+      },
+      {
+        "name": "Road Parking 2",
+        "marker_pixel": [
+          352.28977272727275,
+          676.2102272727273
+        ],
+        "world_xy": [
+          -18.078,
+          -2.879
+        ],
+        "color": "mint/green"
+      }
+    ],
+    "transferred_clean_capture_anchors": [
+      {
+        "name": "Open World Origin",
+        "pixel": [
+          1077.4065607203177,
+          475.5899073042342
+        ]
+      },
+      {
+        "name": "Car Spawn Spot",
+        "pixel": [
+          1077.4190717361755,
+          448.4646907374666
+        ]
+      },
+      {
+        "name": "Road Parking 1",
+        "pixel": [
+          1361.1269784677252,
+          322.5334752180665
+        ]
+      },
+      {
+        "name": "Road Parking 2",
+        "pixel": [
+          1464.7849505992729,
+          426.11578075456487
+        ]
+      }
+    ],
+    "independent_validation": true,
+    "warning": "The four QLabs markers constrain the coordinate fit tightly, but the reference is still a visual placement aid rather than a surveyed engineering map. The clean raster also depends on image-to-image registration between two top-down captures; revalidate if the workspace asset or camera rendering changes substantially."
+  },
+  "rendering": {
+    "locked": true,
+    "selectable": false,
+    "export_to_qlabs": false
+  },
+  "bounds": {
+    "min_x": -24.0,
+    "max_x": 28.0,
+    "min_y": -16.0,
+    "max_y": 14.0
   },
   "reference_points": [
     {
@@ -78,26 +202,42 @@
       "yaw_deg": -42.0
     }
   ],
-  "calibration": {
-    "method": "Aspect-preserving pixel-to-world baseline. Full image width is mapped to the documented approximately 500 m workspace width; image center is placed at world origin; X/Y use one common meters-per-pixel scale.",
-    "status": "documentation_baseline_not_anchor_fitted",
-    "meters_per_pixel": 0.5753739930955121,
-    "image_center_pixel": [
-      434.5,
-      307.0
-    ],
-    "pixel_to_world_affine": {
-      "x": [
-        0.5753739930955121,
-        0.0,
-        -250.0
+  "navigation_regions": [
+    {
+      "id": "documented_outer_navigation_boundary",
+      "name": "Navigation outer boundary (documented)",
+      "polygon": [
+        [
+          -200,
+          -200
+        ],
+        [
+          200,
+          -200
+        ],
+        [
+          200,
+          200
+        ],
+        [
+          -200,
+          200
+        ]
       ],
-      "y": [
-        0.0,
-        -0.5753739930955121,
-        176.6398158803222
-      ]
+      "approximate": true,
+      "note": "Quanser documents a 400 m x 400 m outer boundary; buildings, trees, fences and other obstacles create internal breaks not reconstructed here."
+    }
+  ],
+  "raster_reference": {
+    "image_file": "townscape_qlabs_rectified.png",
+    "opacity": 0.88,
+    "world_bounds": {
+      "min_x": -24.0,
+      "max_x": 28.0,
+      "min_y": -16.0,
+      "max_y": 14.0
     },
-    "limitation": "Official Cityscape/Townscape documentation publishes workspace size, navigation boundary, and common world coordinates, but not matching pixel coordinates in the navigation image. Exact Open-Road-style anchor fitting therefore requires user-supplied pixel/world anchor pairs."
+    "source": "User-captured clean Townscape Lite top-down view, calibrated from a separate four-marker capture",
+    "note": "Rectified into QLabs XY coordinates using the four published Townscape reference points. Calibration markers were measured in a later top-down capture and transferred to the clean capture through feature-based homography registration."
   }
 }

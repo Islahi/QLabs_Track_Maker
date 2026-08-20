@@ -1,6 +1,6 @@
 {
   "format": "qlabs_workspace_vector_reference",
-  "version": 1,
+  "version": "2.2",
   "workspace": "Cityscape",
   "mode": "cityscape",
   "units": "meters",
@@ -10,123 +10,84 @@
     "note": "Road-only vector reference. The documentation image is used offline for tracing only and is not displayed by the editor."
   },
   "calibration": {
-    "method": "2-D affine least-squares fit from six visually identified parking-space centers in the documentation image to Quanser-published Parking Spot 1-6 world coordinates.",
-    "status": "initial_visual_fit_for_editor_validation",
-    "image_width_px": 869,
-    "image_height_px": 663,
+    "method": "2-D affine fit from five marker centers measured in the supplied QLabs top-down screenshot to their exact QLabs world XY coordinates, followed by raster rectification into world-aligned meters.",
+    "status": "qlabs_marker_calibrated",
+    "source_image_size_px": [
+      1920,
+      1080
+    ],
     "pixel_to_world_affine": {
       "x": [
-        0.19142392384559803,
-        -0.12973631456365675,
-        -61.53159452158467
+        0.00324366844,
+        -0.0649911018,
+        38.362884
       ],
       "y": [
-        0.16693178989325178,
-        -0.004060005426480134,
-        -60.376894973994666
+        -0.0647333793,
+        -0.00286426441,
+        84.9315239
       ]
     },
-    "anchor_rms_error_m": 0.7311157499687114,
-    "anchor_max_error_m": 1.3217440547737282,
+    "anchor_rms_error_m": 0.0162,
+    "anchor_max_error_m": 0.0277,
     "anchors": [
       {
-        "name": "Parking Spot 1",
+        "name": "Open World Origin",
         "pixel": [
-          456.0,
-          248.0
+          1282.9828,
+          654.4948
         ],
         "world_xy": [
-          -5.987,
-          14.643
-        ],
-        "fit_world_xy": [
-          -6.4168912597788506,
-          14.737119871561063
-        ],
-        "fit_error_m": 0.44007390908450594
-      },
-      {
-        "name": "Parking Spot 2",
-        "pixel": [
-          456.0,
-          265.75
-        ],
-        "world_xy": [
-          -8.7,
-          14.643
-        ],
-        "fit_world_xy": [
-          -8.719710843283757,
-          14.665054775241046
-        ],
-        "fit_error_m": 0.029579223348321228
-      },
-      {
-        "name": "Parking Spot 3",
-        "pixel": [
-          456.0,
-          282.5
-        ],
-        "world_xy": [
-          -11.048,
-          14.643
-        ],
-        "fit_world_xy": [
-          -10.892794112225005,
-          14.59704968434751
-        ],
-        "fit_error_m": 0.16186506450926322
+          0.0,
+          0.0
+        ]
       },
       {
         "name": "Parking Spot 4",
         "pixel": [
-          571.25,
-          346.25
+          772.2214,
+          567.5203
         ],
         "world_xy": [
           3.978,
           33.322
-        ],
-        "fit_world_xy": [
-          2.8981230575470462,
-          33.577113123606665
-        ],
-        "fit_error_m": 1.109602143418031
+        ]
       },
       {
-        "name": "Parking Spot 5",
+        "name": "Parking Spot 1",
         "pixel": [
-          558.25,
-          333.25
+          1053.2099,
+          735.0191
         ],
         "world_xy": [
-          2.007,
-          31.476
-        ],
-        "fit_world_xy": [
-          2.096184136881817,
-          31.459779925538626
-        ],
-        "fit_error_m": 0.09064712398574559
+          -5.987,
+          14.643
+        ]
       },
       {
-        "name": "Parking Spot 6",
+        "name": "Road Parking 1",
         "pixel": [
-          545.75,
-          320.75
+          1391.0824,
+          860.7778
         ],
         "world_xy": [
-          0.04,
-          29.733
+          -13.093,
+          -7.572
+        ]
+      },
+      {
+        "name": "Road Parking 2",
+        "pixel": [
+          1315.0699,
+          934.3162
         ],
-        "fit_world_xy": [
-          1.325089020857554,
-          29.42388261970399
-        ],
-        "fit_error_m": 1.3217440547737282
+        "world_xy": [
+          -18.078,
+          -2.879
+        ]
       }
     ],
-    "warning": "Pixel anchor centers were measured visually from the documentation image; this first fit is for visual validation and should be refined after comparing the editor overlay with QLabs."
+    "warning": "The marker fit is very tight for this top-down capture, but this remains a visual placement reference rather than a surveyed map. Revalidate after major QLabs workspace/camera changes."
   },
   "rendering": {
     "road_width_source": "DEFAULT_ROAD_WIDTH_M",
@@ -136,10 +97,10 @@
     "export_to_qlabs": false
   },
   "bounds": {
-    "min_x": -70.59687996795444,
-    "max_x": 36.34610602795127,
-    "min_y": -20.707401737595205,
-    "max_y": 47.467930706917855
+    "min_x": -25.0,
+    "max_x": 30.0,
+    "min_y": -18.0,
+    "max_y": 55.0
   },
   "road_references": [
     {
@@ -2928,5 +2889,18 @@
       "approximate": true,
       "note": "Quanser documents a 400 m x 400 m outer boundary; buildings/trees/fences create internal breaks not encoded here."
     }
-  ]
+  ],
+  "raster_reference": {
+    "image_file": "cityscape_qlabs_rectified.png",
+    "opacity": 0.86,
+    "world_bounds": {
+      "min_x": -25.0,
+      "max_x": 30.0,
+      "min_y": -18.0,
+      "max_y": 55.0
+    },
+    "source": "User-captured QLabs Cityscape Lite top-down view with calibration markers",
+    "note": "Rectified into QLabs XY coordinates using five published-coordinate markers. Marker circles were removed from the raster before rectification."
+  },
+  "legacy_vector_reference_note": "road_references below are retained only as a fallback for older code; v2.2 renders the calibrated raster by default because the earlier documentation-image affine trace was misregistered in QLabs world coordinates."
 }

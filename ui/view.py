@@ -6,7 +6,13 @@ from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import QGraphicsView
 
-from config import PIXELS_PER_METER
+from config import (
+    PIXELS_PER_METER,
+    WORKSPACE_OPEN_ROAD,
+    WORKSPACE_CITYSCAPE,
+    WORKSPACE_TOWNSCAPE,
+    WORKSPACE_TOWNSCAPE_LITE,
+)
 from core.geometry import scene_to_world, world_to_scene
 from items.experiment import ExperimentActorItem, SecondaryQCarItem
 from ui.scene import TrackScene
@@ -60,9 +66,17 @@ class TrackView(QGraphicsView):
 
         painter.save()
         painter.setClipRect(editable_rect)
-        # A translucent fill distinguishes the editable region without hiding
-        # an Open Road reference underneath it.
-        painter.fillRect(draw_rect, QColor(27, 30, 34, 205))
+        # Mapped workspaces already contain a placement reference. Keep the
+        # canvas tint light enough that the map remains usable; custom/native
+        # modes retain the stronger editor fill.
+        mapped_mode = self.editor_window.workspace_mode in (
+            WORKSPACE_OPEN_ROAD,
+            WORKSPACE_CITYSCAPE,
+            WORKSPACE_TOWNSCAPE,
+            WORKSPACE_TOWNSCAPE_LITE,
+        )
+        canvas_alpha = 38 if mapped_mode else 205
+        painter.fillRect(draw_rect, QColor(27, 30, 34, canvas_alpha))
 
         # Adaptive grid: large canvases/Open Road automatically use coarser
         # spacing so the scene remains responsive while zoomed out.
@@ -101,13 +115,15 @@ class TrackView(QGraphicsView):
             y += grid_px
             line_index += 1
 
-        minor_pen = QPen(QColor(45, 49, 55), 1)
+        minor_color = QColor(45, 49, 55, 105 if mapped_mode else 255)
+        minor_pen = QPen(minor_color, 1)
         minor_pen.setCosmetic(True)
         painter.setPen(minor_pen)
         for p1, p2 in minor_lines:
             painter.drawLine(p1, p2)
 
-        major_pen = QPen(QColor(63, 69, 77), 1)
+        major_color = QColor(63, 69, 77, 135 if mapped_mode else 255)
+        major_pen = QPen(major_color, 1)
         major_pen.setCosmetic(True)
         painter.setPen(major_pen)
         for p1, p2 in major_lines:

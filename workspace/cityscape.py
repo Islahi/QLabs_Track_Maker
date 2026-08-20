@@ -36,8 +36,20 @@ def load_cityscape_reference() -> tuple[dict, str]:
                 data.get("format")
                 == "qlabs_workspace_vector_reference"
                 and data.get("workspace") == "Cityscape"
-                and data.get("road_references")
+                and (
+                    data.get("road_references")
+                    or data.get("raster_reference")
+                )
             ):
+                # Resolve an optional raster relative to the JSON that
+                # declares it.  The absolute path is runtime-only and is not
+                # written back into project files.
+                raster = data.get("raster_reference", {})
+                image_file = str(raster.get("image_file", "") or "")
+                if image_file:
+                    raster_path = (path.parent / image_file).resolve()
+                    if raster_path.exists():
+                        data["_raster_path"] = str(raster_path)
                 return data, source_name
         except (
             OSError,
