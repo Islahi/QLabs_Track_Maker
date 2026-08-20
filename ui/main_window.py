@@ -66,6 +66,7 @@ from config import (
     PROJECT_SCALES,
     WORKSPACE_CUSTOM,
     WORKSPACE_OPEN_ROAD,
+    WORKSPACE_CITYSCAPE,
     WORKSPACE_MODES,
     DEFAULT_CANVAS_WIDTH_M,
     DEFAULT_CANVAS_HEIGHT_M,
@@ -87,6 +88,7 @@ from workspace.open_road import (
     _offset_world_polyline,
     _world_polyline_path,
 )
+from workspace.cityscape import load_cityscape_reference
 from workspace.profiles import (
     DEFAULT_WORKSPACE_PLATFORM_COLOR_RGB,
     DEFAULT_WORKSPACE_PLATFORM_PROFILE,
@@ -209,6 +211,17 @@ class TrackEditorWindow(QMainWindow):
             self.open_road_reference,
             self.open_road_reference_source,
         ) = load_open_road_reference()
+        try:
+            (
+                self.cityscape_reference,
+                self.cityscape_reference_source,
+            ) = load_cityscape_reference()
+        except FileNotFoundError:
+            # Keep the editor usable if a packaged/user Cityscape reference is
+            # missing. The workspace remains selectable, but no road overlay
+            # will be drawn until a valid JSON is added.
+            self.cityscape_reference = {"road_references": []}
+            self.cityscape_reference_source = "unavailable"
 
         self.workspace_mode = WORKSPACE_CUSTOM
         self.workspace_spline_z_m = workspace_mode_default_spline_z(
@@ -2135,6 +2148,23 @@ class TrackEditorWindow(QMainWindow):
             bottom - top,
         )
 
+    def _cityscape_scene_rect(
+        self,
+        margin_m: float = 20.0,
+    ) -> QRectF:
+        """Return the traced Cityscape road-reference bounds in scene units."""
+        bounds = self.cityscape_reference.get("bounds", {})
+        min_x = float(bounds.get("min_x", -80.0))
+        max_x = float(bounds.get("max_x", 80.0))
+        min_y = float(bounds.get("min_y", -60.0))
+        max_y = float(bounds.get("max_y", 60.0))
+
+        left = (min_x - margin_m) * PIXELS_PER_METER
+        right = (max_x + margin_m) * PIXELS_PER_METER
+        top = -(max_y + margin_m) * PIXELS_PER_METER
+        bottom = -(min_y - margin_m) * PIXELS_PER_METER
+        return QRectF(left, top, right - left, bottom - top)
+
     def _workspace_profile_scene_rect(self, mode: str | None = None) -> QRectF:
         """Return the documented footprint for a native workspace mode."""
         selected_mode = self.workspace_mode if mode is None else str(mode)
@@ -2171,23 +2201,24 @@ class TrackEditorWindow(QMainWindow):
         fit_reference: bool = False,
     ):
         open_road = self.workspace_mode == WORKSPACE_OPEN_ROAD
+        cityscape = self.workspace_mode == WORKSPACE_CITYSCAPE
+        mapped_workspace = open_road or cityscape
         profile = workspace_mode_profile(self.workspace_mode)
         label = workspace_mode_label(self.workspace_mode)
 
-        # Open Road is the only workspace with the detailed 2-D reference
-        # overlay. The fit button remains available for all other workspaces
-        # and fits their documented footprint instead.
-        for widget in (
-            self.workspace_show_road_checkbox,
-            self.workspace_show_nav_checkbox,
-            self.workspace_show_points_checkbox,
-            self.workspace_show_labels_checkbox,
-        ):
-            widget.setEnabled(open_road)
+        # Open Road and Cityscape have documentation-derived 2-D placement
+        # references. Cityscape currently has a road-vector trace plus the
+        # documented outer navigation boundary; Open Road keeps its richer
+        # navigation-region reference.
+        self.workspace_show_road_checkbox.setEnabled(mapped_workspace)
+        self.workspace_show_nav_checkbox.setEnabled(mapped_workspace)
+        self.workspace_show_points_checkbox.setEnabled(mapped_workspace)
+        self.workspace_show_labels_checkbox.setEnabled(mapped_workspace)
         self.fit_workspace_button.setEnabled(True)
 
-        if open_road:
-            # Open Road reference coordinates are native QLabs meters.
+        if mapped_workspace:
+            # Reference coordinates are already native QLabs metres, so a
+            # second project scale would make actor placement misleading.
             if self.project_scale_combo.currentIndex() != 0:
                 self.project_scale_combo.setCurrentIndex(0)
 
@@ -2195,42 +2226,69 @@ class TrackEditorWindow(QMainWindow):
             self.custom_scale_denominator.setEnabled(False)
 
             self.scale_help_label.setText(
-                "Open Road reference coordinates are native QLabs meters. "
+                f"{label} reference coordinates are native QLabs meters. "
                 "Project scale is locked to 1:1 while this workspace is selected."
             )
 
-            calibration = self.open_road_reference.get("calibration", {})
-            rms = calibration.get("anchor_rms_error_m", None)
-            accuracy_text = (
-                f" Approximate anchor-fit RMS: {float(rms):.1f} m."
-                if rms is not None
-                else ""
-            )
+            if open_road:
+                calibration = self.open_road_reference.get("calibration", {})
+                rms = calibration.get("anchor_rms_error_m", None)
+                accuracy_text = (
+                    f" Approximate anchor-fit RMS: {float(rms):.1f} m."
+                    if rms is not None
+                    else ""
+                )
 
-            self.workspace_reference_note.setText(
-                "2-D documentation-derived placement overlay only; "
-                "it contains no road elevation/Z and is never exported. "
-                f"Spline Z defaults to {self.workspace_spline_z_m:.2f} m so "
-                "custom splines remain above the native road mesh. "
-                f"Visual road width ≈ {OPEN_ROAD_REFERENCE_TOTAL_WIDTH_M:.1f} m "
-                f"({OPEN_ROAD_REFERENCE_LANES_PER_SIDE} lanes each direction, "
-                f"{OPEN_ROAD_REFERENCE_LANE_WIDTH_M:.1f} m/lane + "
-                f"{OPEN_ROAD_REFERENCE_SEPARATOR_WIDTH_M:.1f} m separator). "
-                f"Reference carriageway width ≈ "
-                f"{OPEN_ROAD_REFERENCE_CARRIAGEWAY_WIDTH_M:.1f} m. "
-                f"New custom road components keep the configured default width: "
-                f"{DEFAULT_ROAD_WIDTH_M:.1f} m."
-                + accuracy_text
-                + f" Source data: {self.open_road_reference_source}."
-            )
+                self.workspace_reference_note.setText(
+                    "2-D documentation-derived placement overlay only; "
+                    "it contains no road elevation/Z and is never exported. "
+                    f"Spline Z defaults to {self.workspace_spline_z_m:.2f} m so "
+                    "custom splines remain above the native road mesh. "
+                    f"Visual road width ≈ {OPEN_ROAD_REFERENCE_TOTAL_WIDTH_M:.1f} m "
+                    f"({OPEN_ROAD_REFERENCE_LANES_PER_SIDE} lanes each direction, "
+                    f"{OPEN_ROAD_REFERENCE_LANE_WIDTH_M:.1f} m/lane + "
+                    f"{OPEN_ROAD_REFERENCE_SEPARATOR_WIDTH_M:.1f} m separator). "
+                    + accuracy_text
+                    + f" Source data: {self.open_road_reference_source}."
+                )
 
-            self.scene.setSceneRect(
-                self._open_road_scene_rect().united(
-                    self.scene.editable_area_rect().adjusted(
-                        -500.0, -500.0, 500.0, 500.0
+                self.scene.setSceneRect(
+                    self._open_road_scene_rect().united(
+                        self.scene.editable_area_rect().adjusted(
+                            -500.0, -500.0, 500.0, 500.0
+                        )
                     )
                 )
-            )
+            else:
+                calibration = self.cityscape_reference.get("calibration", {})
+                rms = calibration.get("anchor_rms_error_m", None)
+                maximum = calibration.get("anchor_max_error_m", None)
+                accuracy_text = ""
+                if rms is not None:
+                    accuracy_text += f" Anchor-fit RMS ≈ {float(rms):.2f} m."
+                if maximum is not None:
+                    accuracy_text += f" Max anchor residual ≈ {float(maximum):.2f} m."
+
+                self.workspace_reference_note.setText(
+                    "Cityscape road-only vector placement reference derived from "
+                    "Quanser's documentation navigation image and published parking "
+                    "coordinates. It is editor-only and never exported as road actors. "
+                    f"Road band display width uses {DEFAULT_ROAD_WIDTH_M:.1f} m. "
+                    "The navigation overlay shows only Quanser's documented 400 m × "
+                    "400 m outer boundary; internal obstacle holes are not reconstructed."
+                    + accuracy_text
+                    + f" Source data: {self.cityscape_reference_source}."
+                )
+
+                self.scene.setSceneRect(
+                    self._workspace_profile_scene_rect().united(
+                        self._cityscape_scene_rect(margin_m=30.0)
+                    ).united(
+                        self.scene.editable_area_rect().adjusted(
+                            -500.0, -500.0, 500.0, 500.0
+                        )
+                    )
+                )
         else:
             self.project_scale_combo.setEnabled(True)
             self.custom_scale_denominator.setEnabled(True)
@@ -2267,9 +2325,11 @@ class TrackEditorWindow(QMainWindow):
         self.update_zoom_label()
 
     def fit_selected_workspace(self):
-        """Fit Open Road reference or the selected native workspace footprint."""
+        """Fit the selected mapped reference or native workspace footprint."""
         if self.workspace_mode == WORKSPACE_OPEN_ROAD:
             rect = self._open_road_scene_rect(margin_m=250.0)
+        elif self.workspace_mode == WORKSPACE_CITYSCAPE:
+            rect = self._cityscape_scene_rect(margin_m=15.0)
         elif self.workspace_mode == WORKSPACE_CUSTOM:
             rect = self.scene.editable_area_rect().adjusted(-40.0, -40.0, 40.0, 40.0)
         else:
@@ -2283,15 +2343,107 @@ class TrackEditorWindow(QMainWindow):
         # Backward-compatible action target used by older UI code.
         self.fit_selected_workspace()
 
+    def _draw_cityscape_reference(
+        self,
+        painter: QPainter,
+        rect: QRectF,
+    ):
+        reference = self.cityscape_reference
+        view_scale = max(abs(self.view.transform().m11()), 1e-9)
+
+        # Documented outer path-finding boundary. Quanser notes that buildings,
+        # trees, fences and other obstacles create holes inside it; only the
+        # outer 400 m × 400 m boundary is therefore shown here.
+        if self.workspace_show_navigation_regions:
+            nav_pen = QPen(QColor(255, 95, 75, 190), 2, Qt.PenStyle.DashLine)
+            nav_pen.setCosmetic(True)
+            painter.setPen(nav_pen)
+            painter.setBrush(QColor(255, 80, 70, 18))
+            for region in reference.get("navigation_regions", []):
+                polygon = region.get("polygon", [])
+                if len(polygon) < 3:
+                    continue
+                path = QPainterPath()
+                first = world_to_scene(float(polygon[0][0]), float(polygon[0][1]))
+                path.moveTo(first)
+                for point in polygon[1:]:
+                    path.lineTo(world_to_scene(float(point[0]), float(point[1])))
+                path.closeSubpath()
+                painter.drawPath(path)
+
+        if self.workspace_show_road_reference:
+            road_width_px = DEFAULT_ROAD_WIDTH_M * PIXELS_PER_METER
+            surface_pen = QPen(QColor(74, 80, 88, 205), road_width_px)
+            surface_pen.setCosmetic(False)
+            surface_pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+            surface_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+
+            edge_pen = QPen(QColor(242, 245, 248, 220), 1.5)
+            edge_pen.setCosmetic(True)
+
+            center_pen = QPen(QColor(255, 205, 65, 190), 1.0, Qt.PenStyle.DotLine)
+            center_pen.setCosmetic(True)
+
+            for road in reference.get("road_references", []):
+                points = road.get("points", [])
+                closed = bool(road.get("closed", False))
+                if len(points) < 2:
+                    continue
+
+                path = _world_polyline_path(points, closed)
+                painter.setPen(surface_pen)
+                painter.setBrush(Qt.BrushStyle.NoBrush)
+                painter.drawPath(path)
+
+                # Approximate road edges help placement without pretending the
+                # trace is surveyed lane geometry.
+                half_width = DEFAULT_ROAD_WIDTH_M / 2.0
+                painter.setPen(edge_pen)
+                for sign in (-1.0, 1.0):
+                    offset_points = _offset_world_polyline(points, sign * half_width, closed)
+                    painter.drawPath(_world_polyline_path(offset_points, closed))
+
+                painter.setPen(center_pen)
+                painter.drawPath(path)
+
+        if self.workspace_show_reference_points:
+            point_pen = QPen(QColor(255, 220, 80, 245), 2)
+            point_pen.setCosmetic(True)
+            painter.setPen(point_pen)
+            painter.setBrush(QColor(255, 190, 55, 220))
+            marker_radius_scene = 5.0 / view_scale
+            label_positions = []
+
+            for point in reference.get("reference_points", []):
+                scene_pos = world_to_scene(
+                    float(point.get("x", 0.0)),
+                    float(point.get("y", 0.0)),
+                )
+                painter.drawEllipse(scene_pos, marker_radius_scene, marker_radius_scene)
+                if self.workspace_show_reference_labels:
+                    label_positions.append((painter.worldTransform().map(scene_pos), str(point.get("name", ""))))
+
+            if label_positions:
+                painter.save()
+                painter.resetTransform()
+                font = painter.font()
+                font.setPixelSize(11)
+                painter.setFont(font)
+                painter.setPen(QPen(QColor(255, 235, 145, 245), 1))
+                for device_pos, text in label_positions:
+                    painter.drawText(device_pos + QPointF(8.0, -6.0), text)
+                painter.restore()
+
     def draw_workspace_reference(
         self,
         painter: QPainter,
         rect: QRectF,
     ):
-        if (
-            self.workspace_mode
-            != WORKSPACE_OPEN_ROAD
-        ):
+        if self.workspace_mode == WORKSPACE_CITYSCAPE:
+            self._draw_cityscape_reference(painter, rect)
+            return
+
+        if self.workspace_mode != WORKSPACE_OPEN_ROAD:
             return
 
         reference = self.open_road_reference

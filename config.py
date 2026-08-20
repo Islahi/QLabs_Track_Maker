@@ -42,7 +42,7 @@ DEFAULT_ROAD_END_LENGTH_M = 8.0
 
 # Default height used for exported spline roads/markings/guides when a
 # workspace-specific saved value is not present.
-DEFAULT_SPLINE_Z_M = 1.20
+DEFAULT_SPLINE_Z_M = 0.0
 
 # Full-scale footprint used only for the editor QCar2 start marker.
 # The real QLabs QCar actor is uniformly scaled by the project scale.
@@ -233,6 +233,7 @@ WORKSPACE_MODES = (
     WORKSPACE_WAREHOUSE,
 )
 OPEN_ROAD_REFERENCE_FILENAME = 'open_road_reference.json'
+CITYSCAPE_REFERENCE_FILENAME = 'cityscape_reference.json'
 
 # ================================================================
 # Manual tracing / reference image defaults

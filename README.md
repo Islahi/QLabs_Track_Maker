@@ -252,3 +252,20 @@ For manual tracing, a useful sequence is:
 4. place straight road pieces over it;
 5. type the exact road angle in the inspector;
 6. adjust road length/width until the trace fits.
+
+## Cityscape mapped reference (v2.1 add-on)
+
+Select **Workspace → Cityscape** to display a locked, editor-only vector road
+reference derived from Quanser's official Cityscape navigation image. The map
+is calibrated against the six published parking-space coordinates and includes
+published origin/car/parking markers. The current visual-fit calibration has an
+RMS residual of about 0.73 m and a maximum anchor residual of about 1.32 m.
+
+The road reference is a placement guide only: it is not selectable, is not
+exported as QLabs road geometry, and contains no surveyed road elevation.
+The navigation toggle shows only Quanser's documented 400 m × 400 m *outer*
+path-finding boundary; internal holes from buildings, trees and fences are not
+reconstructed.
+
+Use `tools/calibrate_workspace_reference.py` if later QLabs marker checks
+produce better image-pixel/world-coordinate anchor pairs.
