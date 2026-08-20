@@ -121,7 +121,7 @@ WEATHER_PRESETS = (
     ("Blizzard", "blizzard"),
 )
 
-ROTATION_STEP_DEG = 15.0
+ROTATION_STEP_DEG = 45.0
 
 # An endpoint must be this close to another compatible endpoint to snap.
 ENDPOINT_SNAP_DISTANCE_M = 1.0

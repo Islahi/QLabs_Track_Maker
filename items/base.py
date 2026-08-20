@@ -1,7 +1,7 @@
 """Base class shared by all editor items."""
 
 from PySide6.QtCore import QPointF, Qt
-from PySide6.QtGui import QBrush, QColor, QPainter, QPen
+from PySide6.QtGui import QBrush, QColor, QPainter, QPen, QPolygonF
 from PySide6.QtWidgets import QGraphicsItem, QGraphicsSimpleTextItem
 
 from config import (
@@ -91,6 +91,59 @@ class TrackItem(QGraphicsItem):
         self.edge_b_marking_style = DEFAULT_EDGE_B_MARKING_STYLE
         self.end_bar_marking_color = DEFAULT_END_BAR_MARKING_COLOR
         self.end_bar_marking_style = DEFAULT_END_BAR_MARKING_STYLE
+
+    def draw_facing_indicator(
+        self,
+        painter: QPainter,
+        rect,
+        *,
+        axis: str = "x",
+    ):
+        """Draw an editor-only arrow showing the actor's exported front side.
+
+        Actor rotations transform this local-space marker automatically. The
+        marker is visual guidance only and is never serialized or exported.
+        """
+        painter.save()
+        color = QColor(35, 190, 235)
+        pen = QPen(color, 2.4)
+        pen.setCosmetic(True)
+        painter.setPen(pen)
+        painter.setBrush(color)
+
+        if axis == "y":
+            tip = QPointF(0.0, rect.bottom() - 2.0)
+            start = QPointF(0.0, min(0.0, rect.top() + rect.height() * 0.30))
+            wing = max(4.0, min(8.0, rect.width() * 0.12))
+            depth = max(6.0, min(11.0, rect.height() * 0.20))
+            head = QPolygonF([
+                tip,
+                QPointF(tip.x() - wing, tip.y() - depth),
+                QPointF(tip.x() + wing, tip.y() - depth),
+            ])
+            label_rect = rect.adjusted(3, rect.height() * 0.55, -3, -2)
+        else:
+            tip = QPointF(rect.right() - 2.0, 0.0)
+            start = QPointF(min(0.0, rect.left() + rect.width() * 0.30), 0.0)
+            wing = max(4.0, min(8.0, rect.height() * 0.12))
+            depth = max(6.0, min(11.0, rect.width() * 0.20))
+            head = QPolygonF([
+                tip,
+                QPointF(tip.x() - depth, tip.y() - wing),
+                QPointF(tip.x() - depth, tip.y() + wing),
+            ])
+            label_rect = rect.adjusted(rect.width() * 0.48, 2, -2, -2)
+
+        painter.drawLine(start, tip)
+        painter.drawPolygon(head)
+
+        if self.isSelected() and rect.width() >= 45 and rect.height() >= 30:
+            font = painter.font()
+            font.setBold(True)
+            font.setPointSizeF(max(6.0, min(8.0, font.pointSizeF())))
+            painter.setFont(font)
+            painter.drawText(label_rect, Qt.AlignmentFlag.AlignCenter, "FRONT")
+        painter.restore()
 
     # ------------------------------------------------------------
     # Human-readable identifier label

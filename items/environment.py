@@ -161,6 +161,10 @@ class EnvironmentAssetItem(SceneActorItem):
                 painter.setPen(QPen(QColor(245, 245, 245), 1))
                 painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, self.MARKER_TEXT)
 
+        # Buildings and benches have a meaningful façade/front at local +Y.
+        if kind in {"box", "tower", "bench"}:
+            self.draw_facing_indicator(painter, rect, axis="y")
+
         if self.isSelected():
             pen = QPen(SELECTION_COLOR, SELECTION_LINE_WIDTH_PX)
             pen.setCosmetic(True)
