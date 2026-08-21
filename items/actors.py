@@ -104,9 +104,7 @@ class TrafficLightItem(SceneActorItem):
         painter.setBrush(colors.get(self.traffic_color, colors["red"]))
         painter.drawEllipse(QPointF(0, 0), 7, 7)
 
-        # Front-facing arrow.
-        painter.setPen(QPen(QColor(230, 230, 230), 2))
-        painter.drawLine(QPointF(0, 0), QPointF(rect.right() + 8, 0))
+        self.draw_facing_indicator(painter, rect, axis="x")
 
         if self.isSelected():
             pen = QPen(SELECTION_COLOR, SELECTION_LINE_WIDTH_PX)
@@ -150,9 +148,8 @@ class SignActorItem(SceneActorItem):
         painter.setBrush(self.SIGN_COLOR)
         painter.drawEllipse(rect)
 
-        painter.setPen(QPen(QColor(255, 255, 255), 2))
-        painter.drawLine(QPointF(0, 0), QPointF(rect.right() + 8, 0))
         painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, self.SIGN_TEXT)
+        self.draw_facing_indicator(painter, rect, axis="x")
 
         if self.isSelected():
             pen = QPen(SELECTION_COLOR, SELECTION_LINE_WIDTH_PX)
@@ -264,9 +261,8 @@ class CatalogTrafficSignItem(SceneActorItem):
             painter.setPen(QPen(QColor(210, 45, 45), 3))
             painter.drawLine(rect.bottomLeft(), rect.topRight())
 
-        # Forward arrow (+X).
-        painter.setPen(QPen(QColor(255, 220, 70), 2))
-        painter.drawLine(QPointF(0, 0), QPointF(rect.right() + 8, 0))
+        # Validated sign faces local +X in the QLabs exporter.
+        self.draw_facing_indicator(painter, rect, axis="x")
 
         if self.isSelected():
             pen = QPen(SELECTION_COLOR, SELECTION_LINE_WIDTH_PX)
@@ -396,6 +392,7 @@ class BuildingBoxItem(SceneActorItem):
         painter.setPen(QPen(QColor(230, 230, 235), 1))
         painter.drawLine(rect.topLeft(), rect.bottomRight())
         painter.drawLine(rect.topRight(), rect.bottomLeft())
+        self.draw_facing_indicator(painter, rect, axis="y")
 
         if self.isSelected():
             pen = QPen(SELECTION_COLOR, SELECTION_LINE_WIDTH_PX)

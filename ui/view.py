@@ -6,7 +6,14 @@ from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import QGraphicsView
 
-from config import PIXELS_PER_METER
+from config import (
+    PIXELS_PER_METER,
+    WORKSPACE_OPEN_ROAD,
+    WORKSPACE_CITYSCAPE,
+    WORKSPACE_CITYSCAPE_LITE,
+    WORKSPACE_TOWNSCAPE,
+    WORKSPACE_TOWNSCAPE_LITE,
+)
 from core.geometry import scene_to_world, world_to_scene
 from items.experiment import ExperimentActorItem, SecondaryQCarItem
 from ui.scene import TrackScene
@@ -27,19 +34,46 @@ class TrackView(QGraphicsView):
         )
 
         self.setDragMode(QGraphicsView.DragMode.RubberBandDrag)
-        self.setBackgroundBrush(QColor(27, 30, 34))
+        self._dark_theme = True
+        self._theme_colors = {}
+        self.set_dark_theme(True)
 
         self.editor_window = scene.window
         self._middle_panning = False
         self._last_pan_pos = None
 
+    def set_dark_theme(self, dark: bool):
+        """Keep the drawing surface in sync with the application theme."""
+        self._dark_theme = bool(dark)
+        if self._dark_theme:
+            self._theme_colors = {
+                "outside": QColor(15, 17, 21),
+                "inside": QColor(27, 31, 38, 220),
+                "minor": QColor(43, 49, 59),
+                "major": QColor(61, 70, 83),
+                "border": QColor(73, 162, 220),
+                "x_axis": QColor(210, 80, 92),
+                "y_axis": QColor(67, 154, 222),
+            }
+        else:
+            self._theme_colors = {
+                "outside": QColor(205, 212, 218),
+                "inside": QColor(239, 242, 244, 225),
+                "minor": QColor(213, 219, 224),
+                "major": QColor(183, 193, 201),
+                "border": QColor(31, 126, 174),
+                "x_axis": QColor(190, 64, 72),
+                "y_axis": QColor(31, 120, 184),
+            }
+        self.setBackgroundBrush(self._theme_colors["outside"])
+        self.viewport().update()
+
     def drawBackground(self, painter: QPainter, rect: QRectF):
         # Everything outside the user-defined editable canvas is deliberately
         # darker. The grid, workspace overlay, and axes are clipped to the
         # editable rectangle so the design boundary is always obvious.
-        outside_color = QColor(18, 20, 23)
-        inside_color = QColor(27, 30, 34)
-        painter.fillRect(rect, outside_color)
+        colors = self._theme_colors
+        painter.fillRect(rect, colors["outside"])
 
         # Workspace references are context rather than editable objects, so let
         # them remain visible outside the editable rectangle. This preserves the
@@ -51,7 +85,7 @@ class TrackView(QGraphicsView):
         editable_rect = self.scene().editable_area_rect()
         draw_rect = rect.intersected(editable_rect)
         if draw_rect.isEmpty():
-            border_pen = QPen(QColor(95, 170, 210), 2, Qt.PenStyle.DashLine)
+            border_pen = QPen(colors["border"], 2, Qt.PenStyle.DashLine)
             border_pen.setCosmetic(True)
             painter.setPen(border_pen)
             painter.setBrush(Qt.BrushStyle.NoBrush)
@@ -60,9 +94,20 @@ class TrackView(QGraphicsView):
 
         painter.save()
         painter.setClipRect(editable_rect)
-        # A translucent fill distinguishes the editable region without hiding
-        # an Open Road reference underneath it.
-        painter.fillRect(draw_rect, QColor(27, 30, 34, 205))
+        # Mapped workspaces already contain a placement reference. Keep the
+        # canvas tint light enough that the map remains usable; custom/native
+        # modes retain the stronger theme-aware editor fill.
+        mapped_mode = self.editor_window.workspace_mode in (
+            WORKSPACE_OPEN_ROAD,
+            WORKSPACE_CITYSCAPE,
+            WORKSPACE_CITYSCAPE_LITE,
+            WORKSPACE_TOWNSCAPE,
+            WORKSPACE_TOWNSCAPE_LITE,
+        )
+        canvas_color = QColor(colors["inside"])
+        if mapped_mode:
+            canvas_color.setAlpha(38)
+        painter.fillRect(draw_rect, canvas_color)
 
         # Adaptive grid: large canvases/Open Road automatically use coarser
         # spacing so the scene remains responsive while zoomed out.
@@ -101,20 +146,26 @@ class TrackView(QGraphicsView):
             y += grid_px
             line_index += 1
 
-        minor_pen = QPen(QColor(45, 49, 55), 1)
+        minor_color = QColor(colors["minor"])
+        if mapped_mode:
+            minor_color.setAlpha(105)
+        minor_pen = QPen(minor_color, 1)
         minor_pen.setCosmetic(True)
         painter.setPen(minor_pen)
         for p1, p2 in minor_lines:
             painter.drawLine(p1, p2)
 
-        major_pen = QPen(QColor(63, 69, 77), 1)
+        major_color = QColor(colors["major"])
+        if mapped_mode:
+            major_color.setAlpha(135)
+        major_pen = QPen(major_color, 1)
         major_pen.setCosmetic(True)
         painter.setPen(major_pen)
         for p1, p2 in major_lines:
             painter.drawLine(p1, p2)
 
         # World axes stay visible above the grid/reference.
-        x_axis_pen = QPen(QColor(180, 70, 70), 2)
+        x_axis_pen = QPen(colors["x_axis"], 2)
         x_axis_pen.setCosmetic(True)
         painter.setPen(x_axis_pen)
         painter.drawLine(
@@ -122,7 +173,7 @@ class TrackView(QGraphicsView):
             QPointF(draw_rect.right(), 0),
         )
 
-        y_axis_pen = QPen(QColor(70, 150, 210), 2)
+        y_axis_pen = QPen(colors["y_axis"], 2)
         y_axis_pen.setCosmetic(True)
         painter.setPen(y_axis_pen)
         painter.drawLine(
@@ -132,7 +183,7 @@ class TrackView(QGraphicsView):
         painter.restore()
 
         # Dashed cyan frame = editable design boundary.
-        border_pen = QPen(QColor(95, 170, 210), 2, Qt.PenStyle.DashLine)
+        border_pen = QPen(colors["border"], 2, Qt.PenStyle.DashLine)
         border_pen.setCosmetic(True)
         painter.setPen(border_pen)
         painter.setBrush(Qt.BrushStyle.NoBrush)

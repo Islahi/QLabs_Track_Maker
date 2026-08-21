@@ -1,271 +1,175 @@
-# QLabs Track Editor — Modular OOP Rewrite
+# QLabs Track Editor
 
-This project is a behavior-preserving modularization of the working v1.0.1
-Track Editor. The UI/workflow and QLabs exporter are carried over from v1.0.1;
-the source is separated by responsibility.
+A desktop visual editor for designing road networks, placing actors and scenery, and exporting runnable Python setup scripts for **Quanser Interactive Labs (QLabs)**.
 
-## Run
+The editor provides a 2-D, meter-based canvas with snapping, calibrated workspace references, object properties, project save/load, and a standalone QLabs exporter. It is intended to make repeatable QLabs scene construction faster than positioning every actor manually in code.
+
+> **Status:** active development (`v2.0.0-dev`). Project files and generated scripts should be reviewed before use in important experiments.
+
+## Features
+
+- Build roads from straight sections, 45°/90° curves, intersections, T-junctions, road ends, and median walls.
+- Configure road widths, markings, colors, line styles, and component transforms.
+- Place traffic lights, road signs, crosswalks, pedestrians, animals, QCar2 actors, and trigger zones.
+- Add buildings, trees, benches, lamps, bins, planters, fountains, and other static scenery.
+- Automatically fill open space with urban, suburban, or park scenery while preserving a roadside reserve.
+- Create manual movement paths for supported actors without relying on a QLabs navigation mesh.
+- Use endpoint/wall snapping, an adaptive grid, duplication, rotation, deletion, and undo.
+- Import movable and resizable reference images for manual tracing.
+- Save complete editor projects as JSON and reopen them later.
+- Export a standalone Python script that connects to QLabs and builds the configured scene.
+- Switch between system, light, and dark application themes.
+
+## Supported workspaces
+
+| Editor selection | QLabs workspace | Reference behavior |
+| --- | --- | --- |
+| Plane / Custom | Plane | Freeform meter-based canvas |
+| Open Road | OpenRoad | Large native-road reference overlay |
+| Cityscape | Cityscape | Calibrated map and automatic canvas fit |
+| Cityscape Lite | CityscapeLite | Shares the calibrated Cityscape map |
+| Townscape | Townscape | Calibrated map and automatic canvas fit |
+| Townscape Lite | TownscapeLite | Shares the calibrated Townscape map |
+| Studio | Studio | Indoor workspace profile |
+| Warehouse | Warehouse | Indoor workspace profile |
+
+Workspace reference overlays are editor-only placement guides. They are not exported as road geometry.
+
+## Requirements
+
+### Editor
+
+- Python 3.10 or newer
+- [PySide6](https://pypi.org/project/PySide6/)
+
+### Running exported scenes
+
+- A working Quanser Interactive Labs installation
+- The Quanser QLabs Python libraries (`qvl`) available in the environment used to run the exported script
+- The matching QLabs workspace open before executing the generated script
+
+The editor itself does not need QLabs to be running. QLabs is required only when executing an exported setup script.
+
+## Quick start
+
+Clone the repository and enter it:
 
 ```bash
+git clone https://github.com/Islahi/QLabs_Track_Maker.git
+cd QLabs_Track_Maker
+```
+
+Create and activate a virtual environment:
+
+```bash
+python -m venv .venv
+```
+
+Windows PowerShell:
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+```
+
+macOS/Linux:
+
+```bash
+source .venv/bin/activate
+```
+
+Install the editor dependency and launch the application:
+
+```bash
+python -m pip install PySide6
 python main.py
 ```
 
-## Structure
+## Typical workflow
 
-- `main.py` — application entry point
-- `config.py` — editor constants/defaults/theme values
-- `core/geometry.py` — coordinate conversion, snapping math, IDs
-- `workspace/open_road.py` — Open Road reference loading/geometry
-- `data/open_road_reference.json` — packaged v1.0.1 Open Road reference
-- `items/base.py` — TrackItem abstraction
-- `items/roads.py` — straight/curve/junction/end road classes
-- `items/vehicles.py` — primary QCar2 start marker
-- `items/actors.py` — traffic signs/lights/crosswalk/simple building box
-- `items/environment.py` — detailed building and park gallery items
-- `items/experiment.py` — people, animals, secondary QCar2, triggers
-- `registry.py` — polymorphic item factory
-- `ui/scene.py` — QGraphicsScene + endpoint snapping
-- `ui/view.py` — adaptive grid, zoom/pan, waypoint display
-- `ui/main_window.py` — UI orchestration and inspectors
-- `export/qlabs_exporter.py` — standalone QLabs setup source generator
-- `legacy/qlabs_track_editor_v10_1.py` — untouched reference copy
+1. Open the **Setup** tab and select the project scale, canvas size, and target QLabs workspace.
+2. Adjust **Spline Z** if the generated road surface must sit above native workspace geometry.
+3. Use **Build** to add roads, signs, actors, QCars, and editing tools.
+4. Use **Scenery** to place objects manually or auto-fill the editable canvas.
+5. Select an object to edit its position, orientation, dimensions, appearance, and behavior in the inspector.
+6. Save the editable project with **File → Save**. Projects use the `.json` format.
+7. Choose **File → Export QLabs Setup** to generate a standalone `.py` file.
+8. Open the selected workspace in QLabs, then run the exported Python file in an environment with `qvl` installed.
 
-## Parity target
+The generated script connects to QLabs, spawns the configured scene, starts QCar2 real-time support when required, and remains active while movement or trigger monitoring is needed.
 
-The modular version retains the v1.0.1 feature set and now adds reusable building/park scenery:
-project scaling; Open Road overlay; weather/time; all six road components;
-lane-following guides; QCar2 start and camera; traffic lights/signs/crosswalk;
-building box; pedestrian/animal/secondary-QCar experiment actors; waypoint
-editing; once/loop/ping-pong movement; triggers; readable identifiers;
-save/load compatibility; and standalone QLabs export.
+## Keyboard shortcuts
 
-## UI update: compact top tool bar
+| Action | Shortcut |
+| --- | --- |
+| New project | `Ctrl+N` |
+| Open project | `Ctrl+O` |
+| Save project | `Ctrl+S` |
+| Save as | `Ctrl+Shift+S` |
+| Import reference image | `Ctrl+I` |
+| Export QLabs setup | `Ctrl+E` |
+| Undo | `Ctrl+Z` |
+| Duplicate selected | `Ctrl+D` |
+| Rotate selected forward | `R` |
+| Rotate selected backward | `Shift+R` |
+| Delete selected | `Delete` |
 
-This variant moves the former left-side palette to a compact top control bar.
-Project/workspace/environment controls occupy the first row; roads, traffic,
-experiment, QCar and editing tools use symbolic buttons in the second row; the
-third row contains BUILD and PARK galleries. Hover any symbol to see its full
-tool name.
+Mouse-wheel zoom and middle-button panning are available in the graphics view. Objects can be selected and moved directly on the canvas.
 
-The right-side selected-object/property inspector is unchanged.
+## Project and export formats
 
-## Building and park gallery
+Editor projects are JSON files containing:
 
-BUILD contains Simple Box, Office, Apartment, Commercial Shop and Stepped Tower.
-PARK contains Round Tree, Pine Tree, Bench, Lamp Post, Trash Bin, Planter and
-Fountain. These are composite QLabsBasicShape assets and the compact exporter
-includes only the asset construction functions actually used by the current map.
+- project scale and canvas dimensions;
+- selected workspace and spline height;
+- environment weather and time settings;
+- optional workspace-cover configuration;
+- scenery-fill settings; and
+- serialized roads, actors, triggers, paths, and scenery objects.
 
-A ready-to-load visual check is included at
-`examples/building_park_gallery.json`.
+Exported files are standalone Python source files. The calibrated reference rasters and imported tracing images are not embedded as QLabs road actors.
 
-## Auto-fill scenery
+## Repository structure
 
-The **FILL** button in the building/park toolbar row populates the currently
-visible open canvas area with decorative buildings, trees, and park furniture.
-It avoids road footprints and existing editor objects and uses a capped density
-so large/Open Road views cannot create an excessive number of QLabs actors in
-one click. Pedestrians, animals, traffic controls, triggers, and QCars are never
-auto-created because they affect experiment behaviour.
+```text
+QLabs_Track_Maker/
+├── main.py                  # Application entry point
+├── config.py                # Editor defaults and shared constants
+├── registry.py              # Object creation/serialization registry
+├── core/                    # Geometry and traffic-sign data
+├── data/                    # Calibrated workspace references
+├── export/                  # QLabs Python setup generator
+├── items/                   # Roads, actors, scenery, and scene items
+├── services/                # Undo and scenery-fill services
+├── tools/                   # Workspace calibration/validation utilities
+├── ui/                      # Main window, toolbar, view, icons, and themes
+└── workspace/               # Workspace profiles and reference loaders
+```
 
-## Editable canvas and static scenery fill
+## Workspace calibration notes
 
-The editor now has a user-defined **Canvas W × H** design boundary centered on
-world origin. Track items are constrained to this area, the grid is drawn only
-inside it, and scenery auto-fill operates only inside the same rectangle.
+Cityscape/Cityscape Lite and Townscape/Townscape Lite use calibrated visual references derived from QLabs top-down captures. The Townscape calibration uses four published reference locations:
 
-The FILL controls provide **Urban / Suburban / Park** styles, **Low / Medium /
-High** density, and a configurable **roadside reserve**. The default 4 m reserve
-is measured outward from the road footprint; trees and buildings receive
-additional setback. Auto-fill uses only static building/park environment
-assets—never QCars, people, animals, triggers, traffic controls, or signs.
+- Open World Origin: `(0.000, 0.000)`
+- Car Spawn Spot: `(0.000, -1.300)`
+- Road Parking 1: `(-13.093, -7.572)`
+- Road Parking 2: `(-18.078, -2.879)`
 
-Auto-filled composite QLabs BasicShape scenery is exported with dynamics
-disabled so it remains static in the simulation.
+The four-marker Townscape fit produced an RMS residual of **0.0168 m** and a maximum residual of **0.0240 m** at those calibration points. These values measure agreement at the markers; they do not guarantee survey-grade accuracy across every road edge. Revalidate the references after major QLabs workspace, asset, or camera changes.
 
-## Streetscape fill + undo update
+## Known considerations
 
-- Auto-filled **buildings are restricted to a road-side corridor** instead of
-  being scattered across the whole editable canvas. `Road reserve` controls the
-  minimum clear verge; `Bldg` controls the maximum distance from the road edge
-  where an auto-filled building center may appear.
-- Trees and other static park scenery may still use open areas elsewhere in the
-  editable canvas.
-- `Ctrl+Z` and the Undo toolbar button restore the previous project snapshot for
-  common edits including add, move, rotate, duplicate, delete, property edits,
-  and scenery auto-fill.
-- The stepped tower now exports a front door, multiple glazed window rows, and a
-  roof cap so it reads as an occupied building rather than stacked blank blocks.
+- Workspace geometry and actor APIs can vary between QLabs releases.
+- Weather support depends on the selected workspace and QLabs version.
+- Native surfaces may require adjustment of **Spline Z** or the optional workspace cover.
+- Auto-generated scenery and movement paths should be inspected before running an experiment.
+- Keep project JSON files alongside any imported reference images needed for future editing.
 
-## Workspace cover platform for outdoor weather
+## Development checks
 
-The **COVER** row can export one static `QLabsBasicShape` box over a native
-QLabs workspace.  When enabled, every exported road, marking, scenery actor,
-experiment actor, and QCar is translated upward to the box **Top Z**, allowing
-the custom track to run above the native workspace while retaining that
-workspace's supported lighting/weather system.
+Run a syntax check without launching the GUI:
 
-Published QLabs world footprints used by the editor:
+```bash
+python -m compileall main.py config.py registry.py core export items services ui workspace
+```
 
-| Workspace | Footprint used by cover |
-|---|---:|
-| Cityscape | approx. 500 m × 500 m |
-| Cityscape Lite | 500 m × 500 m |
-| Townscape | approx. 500 m × 500 m |
-| Townscape Lite | approx. 500 m × 500 m |
-| Open Road | approx. 10 km × 5 km |
-| Plane | 20,000 m × 20,000 m |
-| Studio | 15 m × 14 m |
-| Warehouse | 50 m × 30 m |
-
-Quanser explicitly documents the Outdoor Environment weather tutorial for
-**Cityscape**, and Open Road is explicitly documented as including time-of-day
-and weather systems. Quanser also notes that not every Open World supports all
-environmental features, so other profiles are provided primarily for geometry
-coverage and should be tested with the installed QLabs release.
-
-`Top Z` and `Bottom Z` are editor choices, not published workspace heights.
-The default Cityscape/Townscape cover top is intentionally high so native map
-geometry is likely to remain below the custom driving surface. If native
-geometry protrudes through the box in your QLabs release, increase **Top Z**.
-Use the COVER fit button to inspect the full platform footprint in the editor.
-
-## Traffic signs and camel
-
-The TRAFFIC toolbar keeps the original QLabs traffic controls as dedicated
-items: **Traffic Light**, **Stop Sign**, **Yield Sign**, **Roundabout Sign**, and
-**Crosswalk**. Stop, Yield, and Roundabout continue to export through their
-native QLabs actor classes.
-
-The adjacent custom-sign selector now contains **only the Plane-validated
-custom signs** developed in this project: Front-or-Right, Front-or-Left,
-Right Turn, Left Turn, U-Turn, No U-Turn, Right-or-Left, Parking, No Parking,
-No Overtaking, Pedestrian Crossing, and speed signs 30/40/50/60/80/100.
-The old unvalidated fallback entries (Road Hump, Narrow From Right/Left,
-No Horn, Slow, and catalog duplicates of Stop/Roundabout) were removed.
-
-The Animal inspector also includes **Camel**. QLabsAnimal itself documents
-Goat, Sheep, and Cow only, so the camel is a low-poly articulated-looking
-BasicShape rig parented to one addressable root. It can use the same immediate
-or triggered spawn and manual waypoint system as the other experiment animals.
-
-For a quick test, open `examples/traffic_sign_camel_gallery.json` in the editor
-or run `examples/traffic_sign_camel_gallery_qlabs.py` in QLabs.
-
-## Plane-validated custom traffic signs
-
-The traffic-sign selector in the top toolbar lets you choose a validated custom
-sign before placing it. The exporter has **no generic fallback catalog** now:
-every entry shown in that selector maps to a tested BasicShape builder. Native
-QLabs Stop, Yield, and Roundabout signs remain available through their separate
-toolbar buttons.
-
-## Workspace selector, spline height, and intersection guides
-
-The main **Workspace** selector now exposes Plane/Custom, Open Road, Cityscape,
-Cityscape Lite, Townscape, Townscape Lite, Studio, and Warehouse. Selecting a
-workspace also aligns the optional COVER profile with that workspace while
-leaving the cover itself off until explicitly enabled.
-
-A new **Spline Z** control sets the base Z used by exported spline roads,
-markings, guide lines, and track-relative actors when no cover box is active.
-Outdoor native workspaces default to **1.0 m** so custom spline geometry is less
-likely to be hidden under the native road mesh. Plane defaults to 0.05 m and
-Studio/Warehouse to 0.10 m. If the COVER box is enabled, its Top Z overrides
-Spline Z and the road surface is lifted 1 cm above the cover to avoid
-z-fighting.
-
-Lane-following guides are now supported by **T-Junction** and **4-Way
-Intersection** items as well as normal roads and curves. The same guide controls
-(position, custom offset, color/RGB, width, solid/dashed style, and project-scale
-width) are available in the inspector, saved in project JSON, drawn in the
-editor, and exported as QLabs spline lines.
-
-## Open Road width / spline calibration
-
-- Open Road now defaults spline roads, markings, and guide lines to **Z = 1.20 m**.
-- New Open Road road components default to **8.4 m** wide, matching the
-  user-validated QLabs comparison for one native three-lane carriageway.
-  Existing saved roads keep their stored width and can be changed from
-  Properties.
-- The editor Open Road visual reference now uses **8.4 m per carriageway**
-  (**2.8 m per displayed lane**) and a **0.6 m median/barrier band**, for an
-  overall visual width of **17.4 m**. These are visual calibration values from
-  the QLabs comparison, not surveyed engineering dimensions.
-- Road markings are independently switchable in the **ROAD MARKINGS** inspector:
-  Edge A, Center line, Edge B, and the Road End bar. Hidden markings are also
-  omitted from the generated QLabs setup script.
-- A **Median / Barrier Wall** tool is available in the ROAD toolbar. It exports
-  as a static collision-enabled concrete BasicShape and straight roads/road ends
-  can snap flush to either side of it while endpoint snapping is enabled.
-
-## Open Road overlay calibration and road markings
-
-This build keeps `DEFAULT_ROAD_WIDTH_M = 8.4` from the supplied configuration.
-The Open Road *reference overlay* is deliberately wider than a custom 8.4 m
-road: it is drawn as three 4.3 m lanes per carriageway plus an approximately
-0.5 m centre divider, for an estimated total two-direction reference width of
-26.3 m. The overlay remains editor-only and is never exported.
-
-Spline roads, road markings and lane-following guides default to `Z = 1.20 m`
-for every workspace unless a saved project overrides the value or a workspace
-cover box supplies its own top-Z surface.
-
-Select a road, curve, road end, T-junction or 4-way intersection to open the
-**ROAD MARKINGS** inspector. Edge A, Center line, Edge B (and the Road-end bar
-where applicable) can each be switched on/off and assigned one of the preset
-colors plus either **Solid** or **Dashed** style. The same settings are written
-to project JSON and reproduced by the QLabs exporter.
-
-
-## Manual image tracing
-
-The editor now supports editor-only image references.
-
-1. Click **TRACE → Import Image** (or `File → Import Reference Image...`).
-2. Move the selected image by dragging it.
-3. Resize it by dragging the cyan handle at its bottom-right corner.
-4. For precise tracing, use the **REFERENCE IMAGE** inspector:
-   - Width
-   - Height
-   - Opacity
-   - Keep aspect ratio
-   - Lock position / resize
-   - Replace image
-   - Fit Canvas
-5. Rotate the reference with the normal **Rotation / angle** property.
-
-Reference images are saved in the project JSON using their file path, but are
-never exported to QLabs.
-
-### Exact road angles
-
-The normal **Rotation / angle** property now accepts 0.10-degree increments.
-The toolbar rotation-step selector also includes 0.5° and 1° steps. This is
-intended for manually tracing roads over a reference image.
-
-For manual tracing, a useful sequence is:
-
-1. import and resize/rotate the image;
-2. lower opacity to about 0.30–0.50;
-3. lock the image;
-4. place straight road pieces over it;
-5. type the exact road angle in the inspector;
-6. adjust road length/width until the trace fits.
-
-## Cityscape mapped reference (v2.1 add-on)
-
-Select **Workspace → Cityscape** to display a locked, editor-only vector road
-reference derived from Quanser's official Cityscape navigation image. The map
-is calibrated against the six published parking-space coordinates and includes
-published origin/car/parking markers. The current visual-fit calibration has an
-RMS residual of about 0.73 m and a maximum anchor residual of about 1.32 m.
-
-The road reference is a placement guide only: it is not selectable, is not
-exported as QLabs road geometry, and contains no surveyed road elevation.
-The navigation toggle shows only Quanser's documented 400 m × 400 m *outer*
-path-finding boundary; internal holes from buildings, trees and fences are not
-reconstructed.
-
-Use `tools/calibrate_workspace_reference.py` if later QLabs marker checks
-produce better image-pixel/world-coordinate anchor pairs.
+For a clean repository, Python bytecode caches (`__pycache__`) should normally be ignored rather than committed.

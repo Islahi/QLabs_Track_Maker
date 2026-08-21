@@ -9,7 +9,7 @@ import json
 import math
 from pathlib import Path
 
-from PySide6.QtCore import QPointF, QRectF, Qt
+from PySide6.QtCore import QPointF, QRectF, QSettings, Qt, QTimer
 from PySide6.QtGui import (
     QAction,
     QColor,
@@ -17,10 +17,12 @@ from PySide6.QtGui import (
     QPainter,
     QPainterPath,
     QPen,
+    QPixmap,
     QIntValidator,
 )
 from PySide6.QtWidgets import (
     QCheckBox,
+    QApplication,
     QComboBox,
     QDoubleSpinBox,
     QFileDialog,
@@ -67,6 +69,9 @@ from config import (
     WORKSPACE_CUSTOM,
     WORKSPACE_OPEN_ROAD,
     WORKSPACE_CITYSCAPE,
+    WORKSPACE_CITYSCAPE_LITE,
+    WORKSPACE_TOWNSCAPE,
+    WORKSPACE_TOWNSCAPE_LITE,
     WORKSPACE_MODES,
     DEFAULT_CANVAS_WIDTH_M,
     DEFAULT_CANVAS_HEIGHT_M,
@@ -89,6 +94,7 @@ from workspace.open_road import (
     _world_polyline_path,
 )
 from workspace.cityscape import load_cityscape_reference
+from workspace.townscape import load_townscape_reference
 from workspace.profiles import (
     DEFAULT_WORKSPACE_PLATFORM_COLOR_RGB,
     DEFAULT_WORKSPACE_PLATFORM_PROFILE,
@@ -148,6 +154,7 @@ from registry import create_track_item_from_dict
 from ui.scene import TrackScene
 from ui.view import TrackView
 from ui.top_bar import TopControlBar
+from ui.theme import app_stylesheet, system_uses_dark_theme
 from services.scenery_filler import SceneryAutoFiller
 from services.undo_manager import SnapshotUndoManager
 
@@ -157,8 +164,28 @@ class TrackEditorWindow(QMainWindow):
     def __init__(self):
         super().__init__()
 
+        self.user_settings = QSettings("QLabs", "TrackEditor")
+        self.theme_preference = str(
+            self.user_settings.value("appearance/theme", "system")
+        ).lower()
+        if self.theme_preference not in {"system", "light", "dark"}:
+            self.theme_preference = "system"
+        self._dark_theme = (
+            system_uses_dark_theme()
+            if self.theme_preference == "system"
+            else self.theme_preference == "dark"
+        )
+        self.setStyleSheet(app_stylesheet(self._dark_theme))
+
         self.current_file: Path | None = None
-        self.rotation_step_deg = ROTATION_STEP_DEG
+        try:
+            self.rotation_step_deg = float(
+                self.user_settings.value("editor/rotation_step", 45.0)
+            )
+        except (TypeError, ValueError):
+            self.rotation_step_deg = 45.0
+        if self.rotation_step_deg not in {0.5, 1.0, 5.0, 15.0, 30.0, 45.0, 90.0}:
+            self.rotation_step_deg = 45.0
         self._property_refreshing = False
         self._guide_refreshing = False
         self._marking_refreshing = False
@@ -223,6 +250,27 @@ class TrackEditorWindow(QMainWindow):
             self.cityscape_reference = {"road_references": []}
             self.cityscape_reference_source = "unavailable"
 
+        raster_path = str(self.cityscape_reference.get("_raster_path", "") or "")
+        self.cityscape_reference_pixmap = (
+            QPixmap(raster_path) if raster_path else QPixmap()
+        )
+
+        try:
+            (
+                self.townscape_reference,
+                self.townscape_reference_source,
+            ) = load_townscape_reference()
+        except FileNotFoundError:
+            self.townscape_reference = {"raster_reference": {}}
+            self.townscape_reference_source = "unavailable"
+
+        town_raster_path = str(
+            self.townscape_reference.get("_raster_path", "") or ""
+        )
+        self.townscape_reference_pixmap = (
+            QPixmap(town_raster_path) if town_raster_path else QPixmap()
+        )
+
         self.workspace_mode = WORKSPACE_CUSTOM
         self.workspace_spline_z_m = workspace_mode_default_spline_z(
             self.workspace_mode
@@ -243,6 +291,10 @@ class TrackEditorWindow(QMainWindow):
         self.scenery_filler = SceneryAutoFiller(self.scene, self.view)
 
         self._build_ui()
+        self.view.set_dark_theme(self._dark_theme)
+        app = QApplication.instance()
+        if app is not None:
+            app.styleHints().colorSchemeChanged.connect(self._system_theme_changed)
         self._build_actions()
         self._set_workspace_from_data({})
         self._set_workspace_platform_from_data({})
@@ -257,6 +309,27 @@ class TrackEditorWindow(QMainWindow):
     # ------------------------------------------------------------
     # UI helpers
     # ------------------------------------------------------------
+
+    def _system_theme_changed(self, color_scheme):
+        """Apply Windows/desktop appearance changes without restarting."""
+        if self.theme_preference != "system":
+            return
+        dark = color_scheme == Qt.ColorScheme.Dark
+        if dark == self._dark_theme:
+            return
+        self._dark_theme = dark
+        self.setStyleSheet(app_stylesheet(dark))
+        self.view.set_dark_theme(dark)
+
+    def theme_preference_changed(self):
+        """Apply and remember System, Light, or Dark appearance selection."""
+        preference = str(self.theme_combo.currentData() or "system")
+        self.theme_preference = preference
+        self.user_settings.setValue("appearance/theme", preference)
+        dark = system_uses_dark_theme() if preference == "system" else preference == "dark"
+        self._dark_theme = dark
+        self.setStyleSheet(app_stylesheet(dark))
+        self.view.set_dark_theme(dark)
 
     def _make_spinbox(
         self,
@@ -322,8 +395,9 @@ class TrackEditorWindow(QMainWindow):
 
         # Dedicated right-side inspector remains independent and scrollable.
         inspector_contents = QWidget()
-        inspector_contents.setMinimumWidth(330)
-        inspector_contents.setMaximumWidth(360)
+        inspector_contents.setObjectName("inspectorPanel")
+        inspector_contents.setMinimumWidth(370)
+        inspector_contents.setMaximumWidth(410)
         inspector_layout = QVBoxLayout(inspector_contents)
         inspector_layout.setContentsMargins(6, 0, 6, 0)
         inspector_layout.setSpacing(6)
@@ -353,10 +427,8 @@ class TrackEditorWindow(QMainWindow):
         info_layout.addLayout(info_control_row)
 
         self.selection_label = QLabel("None")
+        self.selection_label.setObjectName("selectionSummary")
         self.selection_label.setWordWrap(True)
-        self.selection_label.setStyleSheet(
-            "background: #20242a; padding: 8px; border-radius: 4px;"
-        )
         info_layout.addWidget(self.selection_label)
         inspector_layout.addWidget(self.info_group)
 
@@ -369,6 +441,9 @@ class TrackEditorWindow(QMainWindow):
         self.prop_x = self._make_spinbox(-10000.0, 10000.0, 0.10, 2, " m")
         self.prop_y = self._make_spinbox(-10000.0, 10000.0, 0.10, 2, " m")
         self.prop_rotation = self._make_spinbox(0.0, 359.99, 0.10, 2, "°")
+        self.prop_rotation.setToolTip(
+            "Actor orientation. Follow the cyan FRONT arrow on the canvas."
+        )
         self.prop_length = self._make_spinbox(1.0, 1000.0, 1.0, 1, " m")
         self.prop_width = self._make_spinbox(0.05, 50.0, 0.05, 2, " m")
         self.prop_radius = self._make_spinbox(1.0, 1000.0, 1.0, 1, " m")
@@ -377,11 +452,11 @@ class TrackEditorWindow(QMainWindow):
 
         self.properties_form.addRow("X", self.prop_x)
         self.properties_form.addRow("Y", self.prop_y)
-        self.properties_form.addRow("Rotation / angle", self.prop_rotation)
+        self.properties_form.addRow("Orientation", self.prop_rotation)
         self.properties_form.addRow("Length", self.prop_length)
         self.properties_form.addRow("Width", self.prop_width)
         self.properties_form.addRow("Radius", self.prop_radius)
-        self.properties_form.addRow("Arm length", self.prop_arm)
+        self.properties_form.addRow("Arm", self.prop_arm)
         self.properties_form.addRow("Height", self.prop_height)
 
         self.prop_x.valueChanged.connect(self.apply_position_properties)
@@ -399,7 +474,7 @@ class TrackEditorWindow(QMainWindow):
         self.prop_effective.setStyleSheet(
             "background: #20242a; padding: 6px; border-radius: 4px; color: #cfd6de;"
         )
-        self.properties_form.addRow("QLabs effective", self.prop_effective)
+        self.prop_effective.hide()
 
         inspector_layout.addWidget(self.properties_group)
 
@@ -444,16 +519,6 @@ class TrackEditorWindow(QMainWindow):
         reference_button_layout.addWidget(self.reference_replace_button)
         reference_button_layout.addWidget(self.reference_fit_canvas_button)
 
-        reference_note = QLabel(
-            "Drag the image to position it. Drag the cyan bottom-right handle "
-            "to resize it. Exact X/Y, size and angle can also be typed here. "
-            "Reference images are editor-only and are not exported to QLabs."
-        )
-        reference_note.setWordWrap(True)
-        reference_note.setStyleSheet(
-            "color: #aeb6bf; font-size: 11px;"
-        )
-
         reference_form.addRow("File", self.prop_reference_file)
         reference_form.addRow("Width", self.prop_reference_width)
         reference_form.addRow("Height", self.prop_reference_height)
@@ -461,7 +526,6 @@ class TrackEditorWindow(QMainWindow):
         reference_form.addRow(self.prop_reference_lock_aspect)
         reference_form.addRow(self.prop_reference_lock_position)
         reference_form.addRow(reference_button_row)
-        reference_form.addRow(reference_note)
 
         self.prop_reference_width.valueChanged.connect(
             lambda value: self.apply_reference_image_size(
@@ -505,20 +569,22 @@ class TrackEditorWindow(QMainWindow):
             row_layout.setContentsMargins(0, 0, 0, 0)
             row_layout.setSpacing(5)
 
-            enabled = QCheckBox("On")
+            enabled = QCheckBox()
+            enabled.setToolTip("Show this marking")
             color = QComboBox()
             for color_name in ROAD_MARKING_COLOR_RGB:
                 color.addItem(color_name.title(), color_name)
-            color.setMinimumWidth(78)
+            color.setFixedWidth(92)
 
             style = QComboBox()
             for label, value in ROAD_MARKING_STYLES:
                 style.addItem(label, value)
-            style.setMinimumWidth(72)
+            style.setFixedWidth(92)
 
             row_layout.addWidget(enabled)
-            row_layout.addWidget(color, 1)
-            row_layout.addWidget(style, 1)
+            row_layout.addWidget(color)
+            row_layout.addWidget(style)
+            row_layout.addStretch(1)
             return row_widget, enabled, color, style
 
         (
@@ -547,17 +613,9 @@ class TrackEditorWindow(QMainWindow):
         ) = _make_marking_row()
 
         markings_form.addRow("Edge A", self.prop_marking_edge_a_row)
-        markings_form.addRow("Center line", self.prop_marking_center_row)
+        markings_form.addRow("Center", self.prop_marking_center_row)
         markings_form.addRow("Edge B", self.prop_marking_edge_b_row)
-        markings_form.addRow("Road-end bar", self.prop_marking_end_bar_row)
-
-        markings_note = QLabel(
-            "Each road marking can be switched on/off and given its own color "
-            "and solid/dashed style. Edge A/B are the two road boundaries."
-        )
-        markings_note.setWordWrap(True)
-        markings_note.setStyleSheet("color: #aeb6bf; font-size: 11px;")
-        markings_form.addRow(markings_note)
+        markings_form.addRow("End bar", self.prop_marking_end_bar_row)
 
         marking_editors = (
             self.prop_marking_edge_a,
@@ -601,14 +659,6 @@ class TrackEditorWindow(QMainWindow):
             self.apply_camera_property
         )
         camera_form.addRow("View", self.prop_camera_view)
-
-        camera_note = QLabel(
-            "First person uses QCar2 CAMERA_CSI_FRONT. "
-            "Third person uses CAMERA_TRAILING."
-        )
-        camera_note.setWordWrap(True)
-        camera_note.setStyleSheet("color: #aeb6bf; font-size: 11px;")
-        camera_form.addRow(camera_note)
 
         self.camera_group.setVisible(False)
         inspector_layout.addWidget(self.camera_group)
@@ -889,7 +939,7 @@ class TrackEditorWindow(QMainWindow):
         # --------------------------------------------------------
         # Lane-following guide line
         # --------------------------------------------------------
-        self.guide_group = QGroupBox("LANE-FOLLOWING GUIDE")
+        self.guide_group = QGroupBox("LANE GUIDE")
         guide_form = QFormLayout(self.guide_group)
 
         self.prop_guide_enabled = QCheckBox("Enabled")
@@ -936,21 +986,12 @@ class TrackEditorWindow(QMainWindow):
 
         guide_form.addRow("Guide", self.prop_guide_enabled)
         guide_form.addRow("Position", self.prop_guide_position)
-        guide_form.addRow("Custom offset", self.prop_guide_offset)
+        guide_form.addRow("Offset", self.prop_guide_offset)
         guide_form.addRow("Color", self.prop_guide_color)
-        guide_form.addRow("RGB (0-255)", rgb_widget)
-        guide_form.addRow("Design width", self.prop_guide_width)
+        guide_form.addRow("RGB", rgb_widget)
+        guide_form.addRow("Width", self.prop_guide_width)
         guide_form.addRow("Style", self.prop_guide_style)
-        guide_form.addRow("QLabs width", self.prop_guide_scale_width)
-
-        guide_note = QLabel(
-            "Left/right place the guide at the center of each half of a two-lane road. "
-            "T-junctions and 4-way intersections export guide splines on every straight arm. "
-            "Disable width scaling if a 1:10 line becomes too thin for camera detection."
-        )
-        guide_note.setWordWrap(True)
-        guide_note.setStyleSheet("color: #aeb6bf; font-size: 11px;")
-        guide_form.addRow(guide_note)
+        guide_form.addRow("Scale width", self.prop_guide_scale_width)
 
         self.prop_guide_enabled.toggled.connect(self.apply_guide_properties)
         self.prop_guide_position.currentIndexChanged.connect(self.apply_guide_properties)
@@ -1931,6 +1972,57 @@ class TrackEditorWindow(QMainWindow):
     # Workspace reference
     # ------------------------------------------------------------
 
+    def _auto_size_compact_workspace_canvas(self):
+        """Resize the editable canvas around Cityscape/Townscape references.
+
+        The editor canvas is centered on QLabs (0, 0), while the calibrated
+        raster bounds are not necessarily symmetric about the origin.  Use
+        the largest absolute X/Y extent plus a small design margin, then round
+        up to a clean 5 m increment.  This is only called when the user
+        actively switches workspace; saved project canvas dimensions remain
+        authoritative when a JSON project is reopened.
+        """
+        if self.workspace_mode in (WORKSPACE_CITYSCAPE, WORKSPACE_CITYSCAPE_LITE):
+            bounds = self.cityscape_reference.get("bounds", {})
+        elif self.workspace_mode in (WORKSPACE_TOWNSCAPE, WORKSPACE_TOWNSCAPE_LITE):
+            bounds = self.townscape_reference.get("bounds", {})
+        else:
+            return
+
+        min_x = float(bounds.get("min_x", -30.0))
+        max_x = float(bounds.get("max_x", 30.0))
+        min_y = float(bounds.get("min_y", -30.0))
+        max_y = float(bounds.get("max_y", 30.0))
+        margin_m = 8.0
+
+        width_m = 2.0 * (max(abs(min_x), abs(max_x)) + margin_m)
+        height_m = 2.0 * (max(abs(min_y), abs(max_y)) + margin_m)
+        width_m = max(40.0, math.ceil(width_m / 5.0) * 5.0)
+        height_m = max(40.0, math.ceil(height_m / 5.0) * 5.0)
+
+        self.canvas_width_m = width_m
+        self.canvas_height_m = height_m
+        self.canvas_width_spin.blockSignals(True)
+        self.canvas_height_spin.blockSignals(True)
+        try:
+            self.canvas_width_spin.setValue(width_m)
+            self.canvas_height_spin.setValue(height_m)
+        finally:
+            self.canvas_width_spin.blockSignals(False)
+            self.canvas_height_spin.blockSignals(False)
+
+        self.scene.set_editable_area_size(width_m, height_m)
+
+    def _schedule_compact_workspace_autofit(self):
+        """Fit after Qt finishes the current combo/layout update."""
+        if self.workspace_mode in (
+            WORKSPACE_CITYSCAPE,
+            WORKSPACE_CITYSCAPE_LITE,
+            WORKSPACE_TOWNSCAPE,
+            WORKSPACE_TOWNSCAPE_LITE,
+        ):
+            QTimer.singleShot(0, self.fit_selected_workspace)
+
     def workspace_mode_changed(self, *args):
         self._begin_undo_transaction("Change workspace")
         self.workspace_mode = str(
@@ -1950,10 +2042,20 @@ class TrackEditorWindow(QMainWindow):
         finally:
             self.workspace_spline_z_spin.blockSignals(False)
 
+        # Compact mapped workspaces use the calibrated road-reference bounds
+        # to size the editable design canvas automatically.
+        self._auto_size_compact_workspace_canvas()
+
         # Keep the optional cover-box profile aligned with the selected main
         # workspace, without automatically enabling the cover itself.
         self._sync_workspace_platform_profile_to_mode()
-        self._apply_workspace_mode(fit_reference=True)
+        self._apply_workspace_mode(fit_reference=False)
+        self._schedule_compact_workspace_autofit()
+        if self.workspace_mode not in (
+            WORKSPACE_CITYSCAPE, WORKSPACE_CITYSCAPE_LITE,
+            WORKSPACE_TOWNSCAPE, WORKSPACE_TOWNSCAPE_LITE,
+        ):
+            self.fit_selected_workspace()
         self._refresh_scale_ui()
         self._commit_undo_transaction()
 
@@ -2165,6 +2267,23 @@ class TrackEditorWindow(QMainWindow):
         bottom = -(min_y - margin_m) * PIXELS_PER_METER
         return QRectF(left, top, right - left, bottom - top)
 
+    def _townscape_scene_rect(
+        self,
+        margin_m: float = 20.0,
+    ) -> QRectF:
+        """Return the calibrated Townscape road-reference bounds in scene units."""
+        bounds = self.townscape_reference.get("bounds", {})
+        min_x = float(bounds.get("min_x", -30.0))
+        max_x = float(bounds.get("max_x", 30.0))
+        min_y = float(bounds.get("min_y", -20.0))
+        max_y = float(bounds.get("max_y", 20.0))
+
+        left = (min_x - margin_m) * PIXELS_PER_METER
+        right = (max_x + margin_m) * PIXELS_PER_METER
+        top = -(max_y + margin_m) * PIXELS_PER_METER
+        bottom = -(min_y - margin_m) * PIXELS_PER_METER
+        return QRectF(left, top, right - left, bottom - top)
+
     def _workspace_profile_scene_rect(self, mode: str | None = None) -> QRectF:
         """Return the documented footprint for a native workspace mode."""
         selected_mode = self.workspace_mode if mode is None else str(mode)
@@ -2201,15 +2320,19 @@ class TrackEditorWindow(QMainWindow):
         fit_reference: bool = False,
     ):
         open_road = self.workspace_mode == WORKSPACE_OPEN_ROAD
-        cityscape = self.workspace_mode == WORKSPACE_CITYSCAPE
-        mapped_workspace = open_road or cityscape
+        cityscape = self.workspace_mode in (
+            WORKSPACE_CITYSCAPE, WORKSPACE_CITYSCAPE_LITE
+        )
+        townscape = self.workspace_mode in (
+            WORKSPACE_TOWNSCAPE, WORKSPACE_TOWNSCAPE_LITE
+        )
+        mapped_workspace = open_road or cityscape or townscape
         profile = workspace_mode_profile(self.workspace_mode)
         label = workspace_mode_label(self.workspace_mode)
 
-        # Open Road and Cityscape have documentation-derived 2-D placement
-        # references. Cityscape currently has a road-vector trace plus the
-        # documented outer navigation boundary; Open Road keeps its richer
-        # navigation-region reference.
+        # Open Road, Cityscape/Cityscape Lite, and Townscape/Townscape Lite
+        # have mapped placement references.  The Lite variants intentionally
+        # share the same calibrated road geometry as their full counterparts.
         self.workspace_show_road_checkbox.setEnabled(mapped_workspace)
         self.workspace_show_nav_checkbox.setEnabled(mapped_workspace)
         self.workspace_show_points_checkbox.setEnabled(mapped_workspace)
@@ -2259,7 +2382,7 @@ class TrackEditorWindow(QMainWindow):
                         )
                     )
                 )
-            else:
+            elif cityscape:
                 calibration = self.cityscape_reference.get("calibration", {})
                 rms = calibration.get("anchor_rms_error_m", None)
                 maximum = calibration.get("anchor_max_error_m", None)
@@ -2269,13 +2392,24 @@ class TrackEditorWindow(QMainWindow):
                 if maximum is not None:
                     accuracy_text += f" Max anchor residual ≈ {float(maximum):.2f} m."
 
+                raster_meta = self.cityscape_reference.get("raster_reference", {})
+                if raster_meta and not self.cityscape_reference_pixmap.isNull():
+                    reference_description = (
+                        "Cityscape calibrated raster placement reference rectified from "
+                        "an actual QLabs top-down view using the validation-marker "
+                        "coordinates. The raster is editor-only and is never exported. "
+                    )
+                else:
+                    reference_description = (
+                        "Cityscape fallback vector placement reference derived from "
+                        "the documentation image. "
+                    )
+
                 self.workspace_reference_note.setText(
-                    "Cityscape road-only vector placement reference derived from "
-                    "Quanser's documentation navigation image and published parking "
-                    "coordinates. It is editor-only and never exported as road actors. "
-                    f"Road band display width uses {DEFAULT_ROAD_WIDTH_M:.1f} m. "
-                    "The navigation overlay shows only Quanser's documented 400 m × "
-                    "400 m outer boundary; internal obstacle holes are not reconstructed."
+                    reference_description
+                    + "The navigation overlay shows only Quanser's documented 400 m × "
+                    "400 m outer boundary; internal obstacle holes are not reconstructed. "
+                    f"Native-workspace track/spawn Z: {self.workspace_spline_z_m:.2f} m."
                     + accuracy_text
                     + f" Source data: {self.cityscape_reference_source}."
                 )
@@ -2283,6 +2417,39 @@ class TrackEditorWindow(QMainWindow):
                 self.scene.setSceneRect(
                     self._workspace_profile_scene_rect().united(
                         self._cityscape_scene_rect(margin_m=30.0)
+                    ).united(
+                        self.scene.editable_area_rect().adjusted(
+                            -500.0, -500.0, 500.0, 500.0
+                        )
+                    )
+                )
+            else:
+                calibration = self.townscape_reference.get("calibration", {})
+                status = str(calibration.get("status", ""))
+                if status == "two_anchor_similarity_pending_marker_validation":
+                    accuracy_text = (
+                        " Two documented parking coordinates define this fit; "
+                        "independent marker validation is still recommended."
+                    )
+                else:
+                    accuracy_text = ""
+
+                self.workspace_reference_note.setText(
+                    "Townscape calibrated raster placement reference rectified from "
+                    "the supplied QLabs Townscape Lite top-down view. The middle and "
+                    "lower roadside parking bays were matched to Quanser's documented "
+                    "Road Parking 1/2 coordinates. The raster is editor-only and is "
+                    "never exported. The same road geometry is used for Townscape and "
+                    "Townscape Lite. The navigation overlay shows only Quanser's "
+                    "documented 400 m × 400 m outer boundary. "
+                    f"Native-workspace track/spawn Z: {self.workspace_spline_z_m:.2f} m."
+                    + accuracy_text
+                    + f" Source data: {self.townscape_reference_source}."
+                )
+
+                self.scene.setSceneRect(
+                    self._workspace_profile_scene_rect().united(
+                        self._townscape_scene_rect(margin_m=30.0)
                     ).united(
                         self.scene.editable_area_rect().adjusted(
                             -500.0, -500.0, 500.0, 500.0
@@ -2328,8 +2495,10 @@ class TrackEditorWindow(QMainWindow):
         """Fit the selected mapped reference or native workspace footprint."""
         if self.workspace_mode == WORKSPACE_OPEN_ROAD:
             rect = self._open_road_scene_rect(margin_m=250.0)
-        elif self.workspace_mode == WORKSPACE_CITYSCAPE:
-            rect = self._cityscape_scene_rect(margin_m=15.0)
+        elif self.workspace_mode in (WORKSPACE_CITYSCAPE, WORKSPACE_CITYSCAPE_LITE):
+            rect = self._cityscape_scene_rect(margin_m=8.0)
+        elif self.workspace_mode in (WORKSPACE_TOWNSCAPE, WORKSPACE_TOWNSCAPE_LITE):
+            rect = self._townscape_scene_rect(margin_m=8.0)
         elif self.workspace_mode == WORKSPACE_CUSTOM:
             rect = self.scene.editable_area_rect().adjusted(-40.0, -40.0, 40.0, 40.0)
         else:
@@ -2372,39 +2541,70 @@ class TrackEditorWindow(QMainWindow):
                 painter.drawPath(path)
 
         if self.workspace_show_road_reference:
-            road_width_px = DEFAULT_ROAD_WIDTH_M * PIXELS_PER_METER
-            surface_pen = QPen(QColor(74, 80, 88, 205), road_width_px)
-            surface_pen.setCosmetic(False)
-            surface_pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
-            surface_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+            raster = reference.get("raster_reference", {})
+            bounds = raster.get("world_bounds", {})
+            pixmap = self.cityscape_reference_pixmap
 
-            edge_pen = QPen(QColor(242, 245, 248, 220), 1.5)
-            edge_pen.setCosmetic(True)
+            if raster and bounds and not pixmap.isNull():
+                min_x = float(bounds.get("min_x", -25.0))
+                max_x = float(bounds.get("max_x", 30.0))
+                min_y = float(bounds.get("min_y", -18.0))
+                max_y = float(bounds.get("max_y", 55.0))
 
-            center_pen = QPen(QColor(255, 205, 65, 190), 1.0, Qt.PenStyle.DotLine)
-            center_pen.setCosmetic(True)
+                target = QRectF(
+                    min_x * PIXELS_PER_METER,
+                    -max_y * PIXELS_PER_METER,
+                    (max_x - min_x) * PIXELS_PER_METER,
+                    (max_y - min_y) * PIXELS_PER_METER,
+                )
 
-            for road in reference.get("road_references", []):
-                points = road.get("points", [])
-                closed = bool(road.get("closed", False))
-                if len(points) < 2:
-                    continue
+                painter.save()
+                painter.setOpacity(float(raster.get("opacity", 0.86)))
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.drawPixmap(target, pixmap, QRectF(pixmap.rect()))
+                painter.restore()
+            else:
+                # Legacy fallback retained for projects that only contain the
+                # older documentation-derived vector trace.
+                road_width_px = DEFAULT_ROAD_WIDTH_M * PIXELS_PER_METER
+                surface_pen = QPen(QColor(74, 80, 88, 205), road_width_px)
+                surface_pen.setCosmetic(False)
+                surface_pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+                surface_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
 
-                path = _world_polyline_path(points, closed)
-                painter.setPen(surface_pen)
-                painter.setBrush(Qt.BrushStyle.NoBrush)
-                painter.drawPath(path)
+                edge_pen = QPen(QColor(242, 245, 248, 220), 1.5)
+                edge_pen.setCosmetic(True)
 
-                # Approximate road edges help placement without pretending the
-                # trace is surveyed lane geometry.
-                half_width = DEFAULT_ROAD_WIDTH_M / 2.0
-                painter.setPen(edge_pen)
-                for sign in (-1.0, 1.0):
-                    offset_points = _offset_world_polyline(points, sign * half_width, closed)
-                    painter.drawPath(_world_polyline_path(offset_points, closed))
+                center_pen = QPen(
+                    QColor(255, 205, 65, 190),
+                    1.0,
+                    Qt.PenStyle.DotLine,
+                )
+                center_pen.setCosmetic(True)
 
-                painter.setPen(center_pen)
-                painter.drawPath(path)
+                for road in reference.get("road_references", []):
+                    points = road.get("points", [])
+                    closed = bool(road.get("closed", False))
+                    if len(points) < 2:
+                        continue
+
+                    path = _world_polyline_path(points, closed)
+                    painter.setPen(surface_pen)
+                    painter.setBrush(Qt.BrushStyle.NoBrush)
+                    painter.drawPath(path)
+
+                    half_width = DEFAULT_ROAD_WIDTH_M / 2.0
+                    painter.setPen(edge_pen)
+                    for sign in (-1.0, 1.0):
+                        offset_points = _offset_world_polyline(
+                            points, sign * half_width, closed
+                        )
+                        painter.drawPath(
+                            _world_polyline_path(offset_points, closed)
+                        )
+
+                    painter.setPen(center_pen)
+                    painter.drawPath(path)
 
         if self.workspace_show_reference_points:
             point_pen = QPen(QColor(255, 220, 80, 245), 2)
@@ -2434,13 +2634,92 @@ class TrackEditorWindow(QMainWindow):
                     painter.drawText(device_pos + QPointF(8.0, -6.0), text)
                 painter.restore()
 
+    def _draw_townscape_reference(
+        self,
+        painter: QPainter,
+        rect: QRectF,
+    ):
+        reference = self.townscape_reference
+        view_scale = max(abs(self.view.transform().m11()), 1e-9)
+
+        if self.workspace_show_navigation_regions:
+            nav_pen = QPen(QColor(255, 95, 75, 190), 2, Qt.PenStyle.DashLine)
+            nav_pen.setCosmetic(True)
+            painter.setPen(nav_pen)
+            painter.setBrush(QColor(255, 80, 70, 18))
+            for region in reference.get("navigation_regions", []):
+                polygon = region.get("polygon", [])
+                if len(polygon) < 3:
+                    continue
+                path = QPainterPath()
+                first = world_to_scene(float(polygon[0][0]), float(polygon[0][1]))
+                path.moveTo(first)
+                for point in polygon[1:]:
+                    path.lineTo(world_to_scene(float(point[0]), float(point[1])))
+                path.closeSubpath()
+                painter.drawPath(path)
+
+        if self.workspace_show_road_reference:
+            raster = reference.get("raster_reference", {})
+            bounds = raster.get("world_bounds", {})
+            pixmap = self.townscape_reference_pixmap
+            if raster and bounds and not pixmap.isNull():
+                min_x = float(bounds.get("min_x", -24.0))
+                max_x = float(bounds.get("max_x", 28.0))
+                min_y = float(bounds.get("min_y", -16.0))
+                max_y = float(bounds.get("max_y", 14.0))
+                target = QRectF(
+                    min_x * PIXELS_PER_METER,
+                    -max_y * PIXELS_PER_METER,
+                    (max_x - min_x) * PIXELS_PER_METER,
+                    (max_y - min_y) * PIXELS_PER_METER,
+                )
+                painter.save()
+                painter.setOpacity(float(raster.get("opacity", 0.88)))
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.drawPixmap(target, pixmap, QRectF(pixmap.rect()))
+                painter.restore()
+
+        if self.workspace_show_reference_points:
+            point_pen = QPen(QColor(255, 220, 80, 245), 2)
+            point_pen.setCosmetic(True)
+            painter.setPen(point_pen)
+            painter.setBrush(QColor(255, 190, 55, 220))
+            marker_radius_scene = 5.0 / view_scale
+            label_positions = []
+            for point in reference.get("reference_points", []):
+                scene_pos = world_to_scene(
+                    float(point.get("x", 0.0)),
+                    float(point.get("y", 0.0)),
+                )
+                painter.drawEllipse(scene_pos, marker_radius_scene, marker_radius_scene)
+                if self.workspace_show_reference_labels:
+                    label_positions.append(
+                        (painter.worldTransform().map(scene_pos), str(point.get("name", "")))
+                    )
+
+            if label_positions:
+                painter.save()
+                painter.resetTransform()
+                font = painter.font()
+                font.setPixelSize(11)
+                painter.setFont(font)
+                painter.setPen(QPen(QColor(255, 235, 145, 245), 1))
+                for device_pos, text in label_positions:
+                    painter.drawText(device_pos + QPointF(8.0, -6.0), text)
+                painter.restore()
+
     def draw_workspace_reference(
         self,
         painter: QPainter,
         rect: QRectF,
     ):
-        if self.workspace_mode == WORKSPACE_CITYSCAPE:
+        if self.workspace_mode in (WORKSPACE_CITYSCAPE, WORKSPACE_CITYSCAPE_LITE):
             self._draw_cityscape_reference(painter, rect)
+            return
+
+        if self.workspace_mode in (WORKSPACE_TOWNSCAPE, WORKSPACE_TOWNSCAPE_LITE):
+            self._draw_townscape_reference(painter, rect)
             return
 
         if self.workspace_mode != WORKSPACE_OPEN_ROAD:
@@ -2836,7 +3115,11 @@ class TrackEditorWindow(QMainWindow):
     def rotation_step_changed(self):
         value = self.rotation_step_combo.currentData()
         self.rotation_step_deg = float(value) if value is not None else ROTATION_STEP_DEG
+        self.user_settings.setValue("editor/rotation_step", self.rotation_step_deg)
         self.rotate_btn.setText(f"Rotate +{self.rotation_step_deg:g}°")
+        self.rotate_btn.setToolTip(
+            f"Rotate selected +{self.rotation_step_deg:g}° (R)"
+        )
         self._update_help_text()
 
     def _update_help_text(self):
@@ -4059,7 +4342,8 @@ class TrackEditorWindow(QMainWindow):
         selected = self.scene.selected_track_items()
 
         if len(selected) == 1:
-            self.selection_label.setText(selected[0].selection_text())
+            summary = selected[0].selection_text().splitlines()[0]
+            self.selection_label.setText(summary)
             self._refresh_property_editor(selected[0])
             self._refresh_camera_editor(selected[0])
             self._refresh_actor_editor(selected[0])
