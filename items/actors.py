@@ -2,6 +2,7 @@
 
 from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QPainter, QPen, QPolygonF
+from PySide6.QtWidgets import QGraphicsEllipseItem, QGraphicsItem
 
 from config import (
     ACTOR_MARKER_SIZE_M,
@@ -72,6 +73,95 @@ class SceneActorItem(TrackItem):
                 else "\nScale with project: No"
             )
         )
+
+
+class _ActorResizeHandle(QGraphicsEllipseItem):
+    """Canvas corner handle shared by resizable actors and scenery."""
+
+    RADIUS_PX = 7.0
+
+    def __init__(self, owner: "ResizableSceneActorItem"):
+        radius = self.RADIUS_PX
+        super().__init__(-radius, -radius, radius * 2.0, radius * 2.0, owner)
+        self.owner = owner
+        self._dragging = False
+        self.is_control_handle = True
+        self.setFlag(
+            QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations,
+            True,
+        )
+        self.setZValue(6000)
+        self.setPen(QPen(QColor(245, 250, 252), 1.5))
+        self.setBrush(QColor(40, 185, 225))
+        self.setCursor(Qt.CursorShape.SizeFDiagCursor)
+        self.setToolTip("Drag to resize. Use the inspector for exact values.")
+
+    def mousePressEvent(self, event):
+        self.owner.setSelected(True)
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._dragging = True
+            scene = self.scene()
+            if scene is not None and hasattr(scene, "window"):
+                scene.window.begin_canvas_undo(f"Resize {self.owner.DISPLAY_NAME}")
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if self._dragging:
+            self.owner.resize_from_handle(self.owner.mapFromScene(event.scenePos()))
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if self._dragging and event.button() == Qt.MouseButton.LeftButton:
+            self._dragging = False
+            scene = self.scene()
+            if scene is not None and hasattr(scene, "window"):
+                scene.window.end_canvas_undo()
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
+
+
+class ResizableSceneActorItem(SceneActorItem):
+    """Scene actor with a selected-only lower-right resize handle."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._resize_handle = _ActorResizeHandle(self)
+        self._resize_handle.setVisible(False)
+
+    def resize_rect_local(self) -> QRectF:
+        return self.boundingRect()
+
+    def sync_resize_handle(self):
+        handle = getattr(self, "_resize_handle", None)
+        if handle is not None:
+            handle.setPos(self.resize_rect_local().bottomRight())
+
+    def resize_from_handle(self, point: QPointF):
+        raise NotImplementedError
+
+    def _resized_on_canvas(self):
+        self.sync_resize_handle()
+        self.update()
+        scene = self.scene()
+        if scene is not None:
+            scene.update()
+            if hasattr(scene, "notify_selection_or_geometry_changed"):
+                scene.notify_selection_or_geometry_changed()
+
+    def itemChange(self, change, value):
+        result = super().itemChange(change, value)
+        if change == QGraphicsItem.GraphicsItemChange.ItemSelectedHasChanged:
+            handle = getattr(self, "_resize_handle", None)
+            if handle is not None:
+                handle.setVisible(bool(value))
+                if bool(value):
+                    self.sync_resize_handle()
+        return result
 
 class TrafficLightItem(SceneActorItem):
     TYPE_NAME = "traffic_light"
@@ -299,17 +389,28 @@ class CatalogTrafficSignItem(SceneActorItem):
         )
 
 
-class CrosswalkItem(SceneActorItem):
+class CrosswalkItem(ResizableSceneActorItem):
     TYPE_NAME = "crosswalk"
     DISPLAY_NAME = "Crosswalk"
 
+    def __init__(
+        self,
+        object_id: str | None = None,
+        length_m: float = CROSSWALK_MARKER_LENGTH_M,
+        width_m: float = CROSSWALK_MARKER_WIDTH_M,
+    ):
+        self.length_m = max(0.25, float(length_m))
+        self.width_m = max(0.25, float(width_m))
+        super().__init__(object_id=object_id)
+        self.sync_resize_handle()
+
     @property
     def length_px(self):
-        return CROSSWALK_MARKER_LENGTH_M * PIXELS_PER_METER
+        return self.length_m * PIXELS_PER_METER
 
     @property
     def width_px(self):
-        return CROSSWALK_MARKER_WIDTH_M * PIXELS_PER_METER
+        return self.width_m * PIXELS_PER_METER
 
     def boundingRect(self) -> QRectF:
         return QRectF(
@@ -342,21 +443,43 @@ class CrosswalkItem(SceneActorItem):
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawRect(rect)
 
+    def resize_from_handle(self, point: QPointF):
+        self.prepareGeometryChange()
+        self.length_m = max(0.25, abs(float(point.x())) * 2.0 / PIXELS_PER_METER)
+        self.width_m = max(0.25, abs(float(point.y())) * 2.0 / PIXELS_PER_METER)
+        self._resized_on_canvas()
+
     def to_dict(self) -> dict:
-        return self.actor_dict()
+        data = self.actor_dict()
+        data.update({
+            "length_m": round(float(self.length_m), 4),
+            "width_m": round(float(self.width_m), 4),
+        })
+        return data
 
     @classmethod
     def from_dict(cls, data: dict):
-        item = cls(object_id=data.get("id"))
+        item = cls(
+            object_id=data.get("id"),
+            length_m=float(data.get("length_m", CROSSWALK_MARKER_LENGTH_M)),
+            width_m=float(data.get("width_m", CROSSWALK_MARKER_WIDTH_M)),
+        )
         item.load_actor_dict(data)
         item.setPos(world_to_scene(float(data.get("x", 0.0)), float(data.get("y", 0.0))))
         item.setRotation(float(data.get("rotation_deg", 0.0)))
+        item.sync_resize_handle()
         return item
 
     def selection_text(self) -> str:
-        return super().selection_text() + f"\nConfiguration: {self.configuration}"
+        return (
+            super().selection_text()
+            + f"\nConfiguration: {self.configuration}"
+            + f"\nSpan: {self.length_m:.2f} m"
+            + f"\nDepth: {self.width_m:.2f} m"
+            + "\nDrag the cyan corner handle to resize"
+        )
 
-class BuildingBoxItem(SceneActorItem):
+class BuildingBoxItem(ResizableSceneActorItem):
     TYPE_NAME = "building_box"
     DISPLAY_NAME = "Building / Box"
 
@@ -366,6 +489,7 @@ class BuildingBoxItem(SceneActorItem):
         self.width_m = DEFAULT_BUILDING_WIDTH_M
         self.height_m = DEFAULT_BUILDING_HEIGHT_M
         self.rgb = tuple(DEFAULT_BUILDING_RGB)
+        self.sync_resize_handle()
 
     @property
     def length_px(self):
@@ -401,6 +525,12 @@ class BuildingBoxItem(SceneActorItem):
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawRect(rect)
 
+    def resize_from_handle(self, point: QPointF):
+        self.prepareGeometryChange()
+        self.length_m = max(0.1, abs(float(point.x())) * 2.0 / PIXELS_PER_METER)
+        self.width_m = max(0.1, abs(float(point.y())) * 2.0 / PIXELS_PER_METER)
+        self._resized_on_canvas()
+
     def to_dict(self) -> dict:
         data = self.actor_dict()
         data.update(
@@ -426,6 +556,7 @@ class BuildingBoxItem(SceneActorItem):
         item.rgb = tuple(max(0, min(255, int(v))) for v in rgb)
         item.setPos(world_to_scene(float(data.get("x", 0.0)), float(data.get("y", 0.0))))
         item.setRotation(float(data.get("rotation_deg", 0.0)))
+        item.sync_resize_handle()
         return item
 
     def selection_text(self) -> str:
@@ -435,4 +566,5 @@ class BuildingBoxItem(SceneActorItem):
             + f"\nWidth: {self.width_m:.1f} m"
             + f"\nHeight: {self.height_m:.1f} m"
             + f"\nRGB: {self.rgb[0]}, {self.rgb[1]}, {self.rgb[2]}"
+            + "\nDrag the cyan corner handle to resize"
         )

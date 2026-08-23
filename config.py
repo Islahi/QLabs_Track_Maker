@@ -78,7 +78,7 @@ WALL_SNAP_DISTANCE_PX = WALL_SNAP_DISTANCE_M * PIXELS_PER_METER
 # Symbolic editor footprints for scene actors. These are for 2-D layout
 # readability; the QLabs exporter uses each actor's actual QLabs scale.
 ACTOR_MARKER_SIZE_M = 2.0
-CROSSWALK_MARKER_LENGTH_M = 4.2
+CROSSWALK_MARKER_LENGTH_M = 8.4
 CROSSWALK_MARKER_WIDTH_M = 2.1
 # QLabs' crosswalk asset is wider than the road geometry used by this editor.
 # This base multiplier makes Actor scale=1.0 fit a typical 6 m two-lane road.

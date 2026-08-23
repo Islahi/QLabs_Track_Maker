@@ -57,6 +57,8 @@ from config import (
     OPEN_ROAD_REFERENCE_CARRIAGEWAY_WIDTH_M,
     OPEN_ROAD_REFERENCE_SEPARATOR_WIDTH_M,
     OPEN_ROAD_REFERENCE_TOTAL_WIDTH_M,
+    CROSSWALK_MARKER_LENGTH_M,
+    CROSSWALK_MARKER_WIDTH_M,
     CROSSWALK_QLABS_BASE_SCALE,
     DEFAULT_BUILDING_RGB,
     EXPERIMENT_SPAWN_IMMEDIATE,
@@ -2825,7 +2827,20 @@ class TrackEditorWindow(QMainWindow):
         self._commit_undo_transaction()
 
     def add_crosswalk(self):
-        self._add_item_at_view_center(CrosswalkItem())
+        crosswalk = CrosswalkItem()
+        selected = self._single_selected_item()
+        if (
+            selected is not None
+            and selected.supports_road_markings()
+            and hasattr(selected, "width_m")
+        ):
+            lane_count = max(1, int(getattr(selected, "lane_count", 2)))
+            crosswalk.length_m = max(
+                0.25,
+                float(selected.width_m) / float(lane_count),
+            )
+            crosswalk.sync_resize_handle()
+        self._add_item_at_view_center(crosswalk)
 
     def add_building_box(self):
         self._add_item_at_view_center(BuildingBoxItem())
@@ -4639,6 +4654,12 @@ class TrackEditorWindow(QMainWindow):
                 self.prop_arm.setValue(item.arm_length_m)
                 self.prop_width.setValue(item.width_m)
 
+            elif isinstance(item, CrosswalkItem):
+                self._set_property_row_visible(self.prop_length, True)
+                self._set_property_row_visible(self.prop_width, True)
+                self.prop_length.setValue(item.length_m)
+                self.prop_width.setValue(item.width_m)
+
             if (
                 item.supports_road_markings()
                 and not bool(getattr(item, "auto_connector", False))
@@ -5211,6 +5232,8 @@ class TrackEditorWindow(QMainWindow):
             return
 
         self._begin_undo_transaction("Edit actor properties")
+        if hasattr(item, "sync_resize_handle"):
+            item.prepareGeometryChange()
         item.z_m = float(self.prop_actor_z.value())
         item.actor_scale = max(0.01, float(self.prop_actor_scale.value()))
         item.scale_with_project = self.prop_actor_scale_project.isChecked()
@@ -5239,6 +5262,8 @@ class TrackEditorWindow(QMainWindow):
                 self._rgb_input_value(self.prop_building_b, item.rgb[2]),
             )
 
+        if hasattr(item, "sync_resize_handle"):
+            item.sync_resize_handle()
         item.update()
         self.scene.update()
         self.update_selection_info()
@@ -5824,8 +5849,11 @@ class TrackEditorWindow(QMainWindow):
                 else item.actor_scale
             )
             if isinstance(item, CrosswalkItem):
+                base_scale = effective_actor_scale * CROSSWALK_QLABS_BASE_SCALE
                 lines.append(
-                    f"Crosswalk QLabs scale: {effective_actor_scale * CROSSWALK_QLABS_BASE_SCALE:.3f}"
+                    "Crosswalk QLabs scale: "
+                    f"X {base_scale * item.length_m / CROSSWALK_MARKER_LENGTH_M:.3f}, "
+                    f"Y {base_scale * item.width_m / CROSSWALK_MARKER_WIDTH_M:.3f}"
                 )
             else:
                 lines.append(f"Actor scale: {effective_actor_scale:.3f}")
@@ -5887,11 +5915,19 @@ class TrackEditorWindow(QMainWindow):
         if self._property_refreshing:
             return
         item = self._single_selected_item()
-        if not isinstance(item, (StraightRoadItem, RoadEndItem, MedianWallItem)):
+        if not isinstance(
+            item,
+            (StraightRoadItem, RoadEndItem, MedianWallItem, CrosswalkItem),
+        ):
             return
-        self._begin_undo_transaction("Resize road")
+        self._begin_undo_transaction(
+            "Resize crosswalk" if isinstance(item, CrosswalkItem) else "Resize road"
+        )
         item.prepareGeometryChange()
-        item.length_m = max(1.0, float(value))
+        minimum_length = 0.25 if isinstance(item, CrosswalkItem) else 1.0
+        item.length_m = max(minimum_length, float(value))
+        if hasattr(item, "sync_resize_handle"):
+            item.sync_resize_handle()
         self._geometry_property_changed(item)
         self._commit_undo_transaction()
 
@@ -5904,7 +5940,12 @@ class TrackEditorWindow(QMainWindow):
 
         self._begin_undo_transaction("Change width")
         item.prepareGeometryChange()
-        minimum_width = 0.05 if isinstance(item, MedianWallItem) else 1.0
+        if isinstance(item, MedianWallItem):
+            minimum_width = 0.05
+        elif isinstance(item, CrosswalkItem):
+            minimum_width = 0.25
+        else:
+            minimum_width = 1.0
         item.width_m = max(minimum_width, float(value))
 
         # Curves require a positive inner radius.
@@ -5914,6 +5955,9 @@ class TrackEditorWindow(QMainWindow):
                 item.radius_m = minimum_radius
         elif isinstance(item, (TJunctionItem, CrossIntersectionItem)):
             item.arm_length_m = max(item.arm_length_m, item.width_m)
+
+        if hasattr(item, "sync_resize_handle"):
+            item.sync_resize_handle()
 
         self._geometry_property_changed(item)
         self._commit_undo_transaction()

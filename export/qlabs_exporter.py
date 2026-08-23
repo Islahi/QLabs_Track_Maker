@@ -147,6 +147,8 @@ GUIDE_PRESET_RGB = {
 DASH_LENGTH_DESIGN_M = 1.5
 DASH_GAP_DESIGN_M = 1.0
 CROSSWALK_QLABS_BASE_SCALE = 0.55
+CROSSWALK_DESIGN_LENGTH_M = 4.2
+CROSSWALK_DESIGN_WIDTH_M = 2.1
 PATH_REACHED_TOLERANCE_DESIGN_M = 0.45
 
 
@@ -3028,8 +3030,20 @@ def spawn_scene_actor(qlabs, obj):
         location = actor_location(obj)
         location[2] = max(location[2], ROAD_Z + 0.005)
         fitted_scale = actor_scale * CROSSWALK_QLABS_BASE_SCALE
+        length_factor = max(
+            0.01,
+            float(obj.get("length_m", CROSSWALK_DESIGN_LENGTH_M))
+            / CROSSWALK_DESIGN_LENGTH_M,
+        )
+        width_factor = max(
+            0.01,
+            float(obj.get("width_m", CROSSWALK_DESIGN_WIDTH_M))
+            / CROSSWALK_DESIGN_WIDTH_M,
+        )
         actor.spawn(location=location, rotation=[0, 0, yaw],
-                    scale=[fitted_scale, fitted_scale, fitted_scale],
+                    scale=[fitted_scale * length_factor,
+                           fitted_scale * width_factor,
+                           fitted_scale],
                     configuration=configuration, waitForConfirmation=True)
         return actor
 
