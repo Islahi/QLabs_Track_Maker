@@ -192,6 +192,26 @@ class TrackView(QGraphicsView):
     def drawForeground(self, painter: QPainter, rect: QRectF):
         super().drawForeground(painter, rect)
 
+        if getattr(self.editor_window, "continuous_road_drawing", False):
+            points = list(
+                getattr(self.editor_window, "continuous_road_points", [])
+            )
+            preview = getattr(self.editor_window, "continuous_road_preview", None)
+            preview_points = points + ([preview] if preview is not None else [])
+            preview_pen = QPen(QColor(45, 205, 235, 235), 3.0)
+            preview_pen.setCosmetic(True)
+            preview_pen.setStyle(Qt.PenStyle.DashLine)
+            painter.setPen(preview_pen)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            for start, end in zip(preview_points, preview_points[1:]):
+                painter.drawLine(start, end)
+
+            node_radius = 6.0 / max(0.15, self.transform().m11())
+            painter.setPen(QPen(QColor(235, 250, 255), 1.5))
+            painter.setBrush(QColor(40, 185, 225))
+            for point in points:
+                painter.drawEllipse(point, node_radius, node_radius)
+
         editing_id = getattr(self.editor_window, "path_edit_actor_id", None)
         for item in self.scene().track_items():
             if not isinstance(item, ExperimentActorItem):
@@ -233,6 +253,18 @@ class TrackView(QGraphicsView):
         event.accept()
 
     def mousePressEvent(self, event):
+        if getattr(self.editor_window, "continuous_road_drawing", False):
+            if event.button() == Qt.MouseButton.LeftButton:
+                self.editor_window.add_continuous_road_node(
+                    self.mapToScene(event.position().toPoint())
+                )
+                event.accept()
+                return
+            if event.button() == Qt.MouseButton.RightButton:
+                self.editor_window.finish_continuous_road_drawing()
+                event.accept()
+                return
+
         if getattr(self.editor_window, "path_edit_actor_id", None):
             if event.button() == Qt.MouseButton.LeftButton:
                 self.editor_window.add_movement_waypoint(
@@ -276,6 +308,10 @@ class TrackView(QGraphicsView):
         scene_pos = self.mapToScene(event.position().toPoint())
         x_m, y_m = scene_to_world(scene_pos)
         self.editor_window.update_cursor_label(x_m, y_m)
+        if getattr(self.editor_window, "continuous_road_drawing", False):
+            self.editor_window.update_continuous_road_preview(scene_pos)
+            event.accept()
+            return
 
         super().mouseMoveEvent(event)
 
@@ -291,3 +327,19 @@ class TrackView(QGraphicsView):
 
         if event.button() == Qt.MouseButton.LeftButton:
             self.editor_window.end_canvas_undo()
+
+    def keyPressEvent(self, event):
+        if getattr(self.editor_window, "continuous_road_drawing", False):
+            if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                self.editor_window.finish_continuous_road_drawing()
+                event.accept()
+                return
+            if event.key() == Qt.Key.Key_Escape:
+                self.editor_window.cancel_continuous_road_drawing()
+                event.accept()
+                return
+            if event.key() == Qt.Key.Key_Backspace:
+                self.editor_window.remove_last_continuous_road_node()
+                event.accept()
+                return
+        super().keyPressEvent(event)

@@ -9,6 +9,7 @@ The editor provides a 2-D, meter-based canvas with snapping, calibrated workspac
 ## Features
 
 - Build roads from straight sections, 45°/90° curves, intersections, T-junctions, road ends, and median walls.
+- Draw connected continuous roads by clicking an arbitrary sequence of control nodes, then reshape them directly on the canvas.
 - Configure road widths, markings, colors, line styles, and component transforms.
 - Place traffic lights, road signs, crosswalks, pedestrians, animals, QCar2 actors, and trigger zones.
 - Add buildings, trees, benches, lamps, bins, planters, fountains, and other static scenery.
@@ -89,6 +90,7 @@ python main.py
 1. Open the **Setup** tab and select the project scale, canvas size, and target QLabs workspace.
 2. Adjust **Spline Z** if the generated road surface must sit above native workspace geometry.
 3. Use **Build** to add roads, signs, actors, QCars, and editing tools.
+   The continuous-road tool accepts left-clicked nodes; press **Enter** or right-click to finish, **Backspace** to remove the latest node, or **Esc** to cancel. Select a completed continuous road to drag its cyan nodes, insert/remove nodes, reverse its direction, or enable smooth corners.
 4. Use **Scenery** to place objects manually or auto-fill the editable canvas.
 5. Select an object to edit its position, orientation, dimensions, appearance, and behavior in the inspector.
 6. Save the editable project with **File → Save**. Projects use the `.json` format.

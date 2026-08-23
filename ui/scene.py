@@ -13,7 +13,7 @@ from config import (
     WALL_SNAP_DISTANCE_PX,
     SNAP_HEADING_TOLERANCE_DEG,
 )
-from core.geometry import endpoints_face_each_other, point_distance
+from core.geometry import endpoints_face_each_other, point_distance, snap_value
 from items.base import TrackItem
 from items.roads import StraightRoadItem, RoadEndItem, MedianWallItem
 
@@ -125,6 +125,44 @@ class TrackScene(QGraphicsScene):
     # ------------------------------------------------------------------
     # Combined snapping
     # ------------------------------------------------------------------
+
+    def snap_drawing_point(
+        self,
+        scene_point: QPointF,
+        *,
+        exclude_item: TrackItem | None = None,
+        heading_deg: float | None = None,
+    ) -> QPointF:
+        """Snap a road control point to the grid or a nearby road endpoint.
+
+        Unlike ``snap_item_position`` this operates on one explicit scene
+        point, which is what the continuous-road drawing and node handles
+        need. Endpoint coordinates win over the regular one-metre grid.
+        """
+        snapped = QPointF(
+            snap_value(scene_point.x(), PIXELS_PER_METER),
+            snap_value(scene_point.y(), PIXELS_PER_METER),
+        )
+        if not self.endpoint_snap_enabled:
+            return snapped
+        best_distance = ENDPOINT_SNAP_DISTANCE_PX + 1.0
+        best_point = None
+
+        for target_item in self.track_items():
+            if target_item is exclude_item:
+                continue
+            for connection in target_item.connection_points_scene():
+                if heading_deg is not None and not endpoints_face_each_other(
+                    heading_deg,
+                    connection["heading_deg"],
+                ):
+                    continue
+                distance = point_distance(scene_point, connection["pos"])
+                if distance <= ENDPOINT_SNAP_DISTANCE_PX and distance < best_distance:
+                    best_distance = distance
+                    best_point = connection["pos"]
+
+        return QPointF(best_point) if best_point is not None else snapped
 
     def snap_item_position(
         self,

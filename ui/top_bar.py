@@ -413,6 +413,13 @@ class TopControlBar(QWidget):
         row = self.tools_row
 
         row.addWidget(self._category("ROAD"))
+        self.continuous_road_button = self._icon_button(
+            "continuous_road",
+            "Draw continuous road: click nodes, right-click or Enter to finish",
+            self.window.toggle_continuous_road_drawing,
+            checkable=True,
+        )
+        row.addWidget(self.continuous_road_button)
         row.addWidget(self._icon_button("straight", "Straight Road", self.window.add_straight_road))
         row.addWidget(self._icon_button("curve45", "45° Curve", self.window.add_curve_45))
         row.addWidget(self._icon_button("curve90", "90° Curve", self.window.add_curve_90))

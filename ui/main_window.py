@@ -112,6 +112,7 @@ from items.base import TrackItem
 from items.reference import ReferenceImageItem
 from items.roads import (
     StraightRoadItem,
+    ContinuousRoadItem,
     Curve45RoadItem,
     Curve90RoadItem,
     TJunctionItem,
@@ -281,6 +282,10 @@ class TrackEditorWindow(QMainWindow):
         self.workspace_show_reference_labels = True
 
         self.path_edit_actor_id = None
+        self.continuous_road_drawing = False
+        self.continuous_road_points: list[QPointF] = []
+        self.continuous_road_item: ContinuousRoadItem | None = None
+        self.continuous_road_preview: QPointF | None = None
 
         self.setWindowTitle(f"QLabs Track Editor v{self.VERSION}")
         self.resize(1500, 920)
@@ -396,14 +401,13 @@ class TrackEditorWindow(QMainWindow):
         # Dedicated right-side inspector remains independent and scrollable.
         inspector_contents = QWidget()
         inspector_contents.setObjectName("inspectorPanel")
-        inspector_contents.setMinimumWidth(370)
-        inspector_contents.setMaximumWidth(410)
+        # Let the scroll area's viewport own the inspector width.  Giving the
+        # contents competing min/max widths made the main-window size hint
+        # change whenever actor-specific groups were shown or hidden.
         inspector_layout = QVBoxLayout(inspector_contents)
         inspector_layout.setContentsMargins(6, 0, 6, 0)
         inspector_layout.setSpacing(6)
-        inspector_layout.setSizeConstraint(
-            QLayout.SizeConstraint.SetMinAndMaxSize
-        )
+        inspector_layout.setSizeConstraint(QLayout.SizeConstraint.SetDefaultConstraint)
 
         # --------------------------------------------------------
         # Selected-object summary
@@ -477,6 +481,43 @@ class TrackEditorWindow(QMainWindow):
         self.prop_effective.hide()
 
         inspector_layout.addWidget(self.properties_group)
+
+        # --------------------------------------------------------
+        # Continuous-road node tools
+        # --------------------------------------------------------
+        self.continuous_road_group = QGroupBox("ROAD PATH")
+        continuous_layout = QVBoxLayout(self.continuous_road_group)
+        self.continuous_road_help = QLabel(
+            "Drag cyan nodes on the canvas. Double-click a node to remove it."
+        )
+        self.continuous_road_help.setWordWrap(True)
+        continuous_layout.addWidget(self.continuous_road_help)
+        self.continuous_road_smooth = QCheckBox("Smooth through control nodes")
+        self.continuous_road_smooth.toggled.connect(
+            self.apply_selected_continuous_road_smoothing
+        )
+        continuous_layout.addWidget(self.continuous_road_smooth)
+
+        continuous_buttons = QHBoxLayout()
+        self.continuous_add_node_button = QPushButton("Insert Node")
+        self.continuous_remove_node_button = QPushButton("Remove Last")
+        self.continuous_reverse_button = QPushButton("Reverse")
+        continuous_buttons.addWidget(self.continuous_add_node_button)
+        continuous_buttons.addWidget(self.continuous_remove_node_button)
+        continuous_buttons.addWidget(self.continuous_reverse_button)
+        continuous_layout.addLayout(continuous_buttons)
+
+        self.continuous_add_node_button.clicked.connect(
+            self.insert_selected_continuous_road_node
+        )
+        self.continuous_remove_node_button.clicked.connect(
+            self.remove_selected_continuous_road_last_node
+        )
+        self.continuous_reverse_button.clicked.connect(
+            self.reverse_selected_continuous_road
+        )
+        self.continuous_road_group.setVisible(False)
+        inspector_layout.addWidget(self.continuous_road_group)
 
         # --------------------------------------------------------
         # Reference image controls
@@ -1011,17 +1052,18 @@ class TrackEditorWindow(QMainWindow):
         # The inspector is independently scrollable from the component
         # library. This keeps long property/experiment/path panels usable
         # without sacrificing canvas height.
-        inspector_scroll = QScrollArea()
-        inspector_scroll.setWidgetResizable(True)
-        inspector_scroll.setHorizontalScrollBarPolicy(
+        self.inspector_scroll = QScrollArea()
+        self.inspector_scroll.setWidgetResizable(True)
+        self.inspector_scroll.setHorizontalScrollBarPolicy(
             Qt.ScrollBarPolicy.ScrollBarAlwaysOff
         )
-        inspector_scroll.setVerticalScrollBarPolicy(
+        self.inspector_scroll.setVerticalScrollBarPolicy(
             Qt.ScrollBarPolicy.ScrollBarAsNeeded
         )
-        inspector_scroll.setWidget(inspector_contents)
-        inspector_scroll.setMinimumWidth(345)
-        inspector_scroll.setMaximumWidth(380)
+        self.inspector_scroll.setWidget(inspector_contents)
+        # Keep a stable, roomy inspector column.  The vertical scrollbar lives
+        # inside this width, so property rows never push or resize the window.
+        self.inspector_scroll.setFixedWidth(420)
 
         # --------------------------------------------------------
         # Canvas
@@ -1049,7 +1091,7 @@ class TrackEditorWindow(QMainWindow):
         canvas_layout.addLayout(bottom)
 
         body.addWidget(canvas_container, 1)
-        body.addWidget(inspector_scroll)
+        body.addWidget(self.inspector_scroll)
         root.addLayout(body, 1)
 
         self.setCentralWidget(central)
@@ -1463,6 +1505,151 @@ class TrackEditorWindow(QMainWindow):
         if combo is not None and combo.currentData() is not None:
             item.sign_type = str(combo.currentData())
         self._add_item_at_view_center(item)
+
+    def toggle_continuous_road_drawing(self, enabled: bool):
+        if enabled:
+            self.start_continuous_road_drawing()
+        else:
+            self.finish_continuous_road_drawing()
+
+    def _set_continuous_road_button_checked(self, checked: bool):
+        button = getattr(self.top_bar, "continuous_road_button", None)
+        if button is None:
+            return
+        button.blockSignals(True)
+        button.setChecked(bool(checked))
+        button.blockSignals(False)
+
+    def start_continuous_road_drawing(self):
+        if self.continuous_road_drawing:
+            return
+        self.finish_path_editing()
+        self.scene.clearSelection()
+        self.continuous_road_drawing = True
+        self.continuous_road_points = []
+        self.continuous_road_item = None
+        self.continuous_road_preview = None
+        self._begin_undo_transaction("Draw continuous road")
+        self._set_continuous_road_button_checked(True)
+        self.view.setFocus()
+        self.statusBar().showMessage(
+            "Continuous road: left-click nodes; Backspace removes the last node; "
+            "right-click or Enter finishes; Esc cancels."
+        )
+        self.view.viewport().update()
+
+    def update_continuous_road_preview(self, scene_pos: QPointF):
+        if not self.continuous_road_drawing:
+            return
+        self.continuous_road_preview = self.scene.snap_drawing_point(
+            scene_pos,
+            exclude_item=self.continuous_road_item,
+        )
+        self.view.viewport().update()
+
+    def add_continuous_road_node(self, scene_pos: QPointF):
+        if not self.continuous_road_drawing:
+            return
+        point = self.scene.snap_drawing_point(
+            scene_pos,
+            exclude_item=self.continuous_road_item,
+        )
+        if self.continuous_road_points:
+            previous = self.continuous_road_points[-1]
+            if math.hypot(point.x() - previous.x(), point.y() - previous.y()) < 5.0:
+                self.statusBar().showMessage(
+                    "Place the next road node at least 0.25 m away.",
+                    2500,
+                )
+                return
+
+        self.continuous_road_points.append(QPointF(point))
+        self.continuous_road_preview = QPointF(point)
+
+        if len(self.continuous_road_points) == 2:
+            anchor = self.continuous_road_points[0]
+            item = ContinuousRoadItem(
+                points_m=[
+                    (0.0, 0.0),
+                    (
+                        (self.continuous_road_points[1].x() - anchor.x())
+                        / PIXELS_PER_METER,
+                        -(self.continuous_road_points[1].y() - anchor.y())
+                        / PIXELS_PER_METER,
+                    ),
+                ],
+                width_m=self._workspace_new_road_width_m(),
+            )
+            # Position before scene insertion so the exact endpoint snap is
+            # retained rather than interpreted as an item move.
+            item.setPos(anchor)
+            self.scene.addItem(item)
+            item.setSelected(True)
+            self.continuous_road_item = item
+        elif len(self.continuous_road_points) > 2 and self.continuous_road_item is not None:
+            self.continuous_road_item.set_scene_points(self.continuous_road_points)
+
+        self.view.viewport().update()
+
+    def remove_last_continuous_road_node(self):
+        if not self.continuous_road_drawing or not self.continuous_road_points:
+            return
+        self.continuous_road_points.pop()
+        if len(self.continuous_road_points) < 2:
+            if self.continuous_road_item is not None:
+                self.scene.removeItem(self.continuous_road_item)
+                self.continuous_road_item = None
+        elif self.continuous_road_item is not None:
+            self.continuous_road_item.set_scene_points(self.continuous_road_points)
+        self.continuous_road_preview = (
+            QPointF(self.continuous_road_points[-1])
+            if self.continuous_road_points
+            else None
+        )
+        self.view.viewport().update()
+
+    def finish_continuous_road_drawing(self):
+        if not self.continuous_road_drawing:
+            self._set_continuous_road_button_checked(False)
+            return
+        has_road = self.continuous_road_item is not None and len(
+            self.continuous_road_points
+        ) >= 2
+        self.continuous_road_drawing = False
+        self.continuous_road_preview = None
+        self._set_continuous_road_button_checked(False)
+
+        if has_road:
+            self._commit_undo_transaction()
+            self.statusBar().showMessage(
+                "Continuous road created. Select it and drag its cyan nodes to reshape it.",
+                4500,
+            )
+        else:
+            if self.continuous_road_item is not None:
+                self.scene.removeItem(self.continuous_road_item)
+            self.undo_manager.cancel()
+            self._update_undo_controls()
+            self.statusBar().showMessage("Continuous road drawing cancelled.", 2500)
+
+        self.continuous_road_points = []
+        self.continuous_road_item = None
+        self.view.viewport().update()
+
+    def cancel_continuous_road_drawing(self):
+        if not self.continuous_road_drawing:
+            return
+        if self.continuous_road_item is not None:
+            self.scene.removeItem(self.continuous_road_item)
+        self.continuous_road_drawing = False
+        self.continuous_road_points = []
+        self.continuous_road_item = None
+        self.continuous_road_preview = None
+        self.undo_manager.cancel()
+        self._update_undo_controls()
+        self._set_continuous_road_button_checked(False)
+        self.statusBar().showMessage("Continuous road drawing cancelled.", 2500)
+        self.view.viewport().update()
 
     def add_crosswalk(self):
         self._add_item_at_view_center(CrosswalkItem())
@@ -3257,6 +3444,10 @@ class TrackEditorWindow(QMainWindow):
                 self.prop_length.setValue(item.length_m)
                 self.prop_width.setValue(item.width_m)
 
+            elif isinstance(item, ContinuousRoadItem):
+                self._set_property_row_visible(self.prop_width, True)
+                self.prop_width.setValue(item.width_m)
+
             elif isinstance(item, (Curve90RoadItem, Curve45RoadItem)):
                 self._set_property_row_visible(self.prop_radius, True)
                 self._set_property_row_visible(self.prop_width, True)
@@ -3273,6 +3464,74 @@ class TrackEditorWindow(QMainWindow):
         finally:
             self._block_property_signals(False)
             self._property_refreshing = False
+
+    def _refresh_continuous_road_editor(self, item: TrackItem | None):
+        road = item if isinstance(item, ContinuousRoadItem) else None
+        self.continuous_road_group.setVisible(road is not None)
+        if road is None:
+            return
+        self.continuous_road_help.setText(
+            f"{len(road.points_m)} nodes · {road.total_length_m:.1f} m. "
+            "Drag cyan nodes on the canvas; double-click a node to remove it."
+        )
+        self.continuous_road_smooth.blockSignals(True)
+        self.continuous_road_smooth.setChecked(road.smooth)
+        self.continuous_road_smooth.blockSignals(False)
+        self.continuous_remove_node_button.setEnabled(len(road.points_m) > 2)
+
+    def apply_selected_continuous_road_smoothing(self, checked: bool):
+        road = self._single_selected_item()
+        if not isinstance(road, ContinuousRoadItem):
+            return
+        self._begin_undo_transaction("Change continuous-road smoothing")
+        road.prepareGeometryChange()
+        road.smooth = bool(checked)
+        road.update()
+        self.scene.update()
+        self.update_selection_info()
+        self._commit_undo_transaction()
+
+    def insert_selected_continuous_road_node(self):
+        road = self._single_selected_item()
+        if not isinstance(road, ContinuousRoadItem):
+            return
+        points = list(road.points_m)
+        segment_index = max(
+            range(len(points) - 1),
+            key=lambda index: math.hypot(
+                points[index + 1][0] - points[index][0],
+                points[index + 1][1] - points[index][1],
+            ),
+        )
+        start = points[segment_index]
+        end = points[segment_index + 1]
+        midpoint = (
+            (start[0] + end[0]) / 2.0,
+            (start[1] + end[1]) / 2.0,
+        )
+        self._begin_undo_transaction("Insert continuous-road node")
+        points.insert(segment_index + 1, midpoint)
+        road.set_points_m(points)
+        self.update_selection_info()
+        self._commit_undo_transaction()
+
+    def remove_selected_continuous_road_last_node(self):
+        road = self._single_selected_item()
+        if not isinstance(road, ContinuousRoadItem) or len(road.points_m) <= 2:
+            return
+        self._begin_undo_transaction("Remove continuous-road node")
+        road.remove_node(len(road.points_m) - 1)
+        self.update_selection_info()
+        self._commit_undo_transaction()
+
+    def reverse_selected_continuous_road(self):
+        road = self._single_selected_item()
+        if not isinstance(road, ContinuousRoadItem):
+            return
+        self._begin_undo_transaction("Reverse continuous road")
+        road.set_points_m(list(reversed(road.points_m)))
+        self.update_selection_info()
+        self._commit_undo_transaction()
 
 
     def _refresh_reference_image_editor(
@@ -3719,6 +3978,8 @@ class TrackEditorWindow(QMainWindow):
         item = self._single_selected_item()
         if not isinstance(item, ExperimentActorItem):
             return
+        if self.continuous_road_drawing:
+            self.finish_continuous_road_drawing()
         self.path_edit_actor_id = str(item.object_id)
         self.path_draw_button.setText("Click map... (right-click ends)")
         self.view.setCursor(Qt.CursorShape.CrossCursor)
@@ -4345,6 +4606,7 @@ class TrackEditorWindow(QMainWindow):
             summary = selected[0].selection_text().splitlines()[0]
             self.selection_label.setText(summary)
             self._refresh_property_editor(selected[0])
+            self._refresh_continuous_road_editor(selected[0])
             self._refresh_camera_editor(selected[0])
             self._refresh_actor_editor(selected[0])
             self._refresh_experiment_editor(selected[0])
@@ -4354,21 +4616,23 @@ class TrackEditorWindow(QMainWindow):
         elif len(selected) > 1:
             self.selection_label.setText(f"{len(selected)} objects selected")
             self._refresh_property_editor(None)
+            self._refresh_continuous_road_editor(None)
             self._refresh_camera_editor(None)
             self._refresh_actor_editor(None)
             self._refresh_experiment_editor(None)
             self._refresh_guide_editor(None)
             self._refresh_road_markings_editor(None)
-            self._refresh_reference_image_editor(None)
             self._refresh_reference_image_editor(None)
         else:
             self.selection_label.setText("None")
             self._refresh_property_editor(None)
+            self._refresh_continuous_road_editor(None)
             self._refresh_camera_editor(None)
             self._refresh_actor_editor(None)
             self._refresh_experiment_editor(None)
             self._refresh_guide_editor(None)
             self._refresh_road_markings_editor(None)
+            self._refresh_reference_image_editor(None)
 
     def update_cursor_label(self, x_m: float, y_m: float):
         self.cursor_label.setText(f"Cursor: X {x_m:.1f} m | Y {y_m:.1f} m")
@@ -4382,6 +4646,8 @@ class TrackEditorWindow(QMainWindow):
     # ------------------------------------------------------------
 
     def export_qlabs_setup(self):
+        if self.continuous_road_drawing:
+            self.finish_continuous_road_drawing()
         qcar_starts = [
             item
             for item in self.scene.track_items()
@@ -4494,6 +4760,7 @@ class TrackEditorWindow(QMainWindow):
         }
 
     def new_track(self):
+        self.cancel_continuous_road_drawing()
         self.scene.clear()
         self.project_scale_combo.setCurrentIndex(0)
         self._set_environment_from_data({})
@@ -4509,6 +4776,8 @@ class TrackEditorWindow(QMainWindow):
         self.update_selection_info()
 
     def save_track(self, save_as: bool = False):
+        if self.continuous_road_drawing:
+            self.finish_continuous_road_drawing()
         path = self.current_file
 
         if path is None or save_as:
@@ -4543,6 +4812,8 @@ class TrackEditorWindow(QMainWindow):
         )
         if not file_name:
             return
+
+        self.cancel_continuous_road_drawing()
 
         path = Path(file_name)
 

@@ -36,6 +36,7 @@ from items.environment import (
     TrashBinItem,
 )
 from items.roads import (
+    ContinuousRoadItem,
     CrossIntersectionItem,
     Curve45RoadItem,
     Curve90RoadItem,
@@ -46,6 +47,7 @@ from items.roads import (
 
 
 ROAD_TYPES = (
+    ContinuousRoadItem,
     StraightRoadItem,
     Curve45RoadItem,
     Curve90RoadItem,

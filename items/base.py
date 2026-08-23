@@ -446,6 +446,15 @@ class TrackItem(QGraphicsItem):
     def itemChange(self, change, value):
         if change == QGraphicsItem.GraphicsItemChange.ItemPositionChange:
             if isinstance(value, QPointF):
+                # Deserialization constructs items before adding them to a
+                # scene. Preserve those saved coordinates exactly: a road
+                # endpoint snap can legitimately leave the item's origin off
+                # the grid. Re-snapping here used to break connected roads
+                # whenever a snapshot-based Undo rebuilt the scene.
+                scene = self.scene()
+                if scene is None:
+                    return value
+
                 # First snap the item's origin to the 1 m grid.
                 proposed = QPointF(
                     snap_value(value.x(), GRID_PIXELS),
@@ -453,8 +462,7 @@ class TrackItem(QGraphicsItem):
                 )
 
                 # Then allow endpoint snapping to override the origin grid.
-                scene = self.scene()
-                if scene is not None and hasattr(scene, "snap_item_position"):
+                if hasattr(scene, "snap_item_position"):
                     proposed = scene.snap_item_position(self, proposed)
 
                 # The editable canvas is a fill/design boundary, not a hard

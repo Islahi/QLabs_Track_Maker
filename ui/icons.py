@@ -51,7 +51,24 @@ def make_tool_icon(kind: str, size: int = 30) -> QIcon:
     # ------------------------------------------------------------
     # Roads
     # ------------------------------------------------------------
-    if kind == "straight":
+    if kind == "continuous_road":
+        p.setPen(_road_pen(7))
+        road_path = QPainterPath(QPointF(3, s - 6))
+        road_path.lineTo(QPointF(s * 0.38, s * 0.62))
+        road_path.lineTo(QPointF(s * 0.58, s * 0.30))
+        road_path.lineTo(QPointF(s - 3, 5))
+        p.drawPath(road_path)
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(ACCENT)
+        for point in (
+            QPointF(3, s - 6),
+            QPointF(s * 0.38, s * 0.62),
+            QPointF(s * 0.58, s * 0.30),
+            QPointF(s - 3, 5),
+        ):
+            p.drawEllipse(point, 2.2, 2.2)
+
+    elif kind == "straight":
         p.setPen(_road_pen(9))
         p.drawLine(QPointF(4, cy), QPointF(s - 4, cy))
         pen = QPen(ROAD_CENTER, 1.5, Qt.PenStyle.DashLine)

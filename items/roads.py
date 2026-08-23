@@ -4,6 +4,7 @@ import math
 
 from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QPainter, QPainterPath, QPainterPathStroker, QPen
+from PySide6.QtWidgets import QGraphicsEllipseItem, QGraphicsItem
 
 from config import (
     PIXELS_PER_METER,
@@ -27,6 +28,168 @@ from config import (
 )
 from core.geometry import world_to_scene
 from items.base import TrackItem
+
+
+def _path_from_points(points: list[QPointF]) -> QPainterPath:
+    path = QPainterPath()
+    if not points:
+        return path
+    path.moveTo(points[0])
+    for point in points[1:]:
+        path.lineTo(point)
+    return path
+
+
+def _offset_polyline(points: list[QPointF], offset: float) -> list[QPointF]:
+    """Return a stable mitered offset for an open editor-space polyline."""
+    if len(points) < 2 or abs(offset) <= 1e-9:
+        return [QPointF(point) for point in points]
+
+    normals: list[QPointF] = []
+    for start, end in zip(points, points[1:]):
+        dx = end.x() - start.x()
+        dy = end.y() - start.y()
+        length = math.hypot(dx, dy)
+        if length <= 1e-9:
+            normals.append(QPointF(0.0, 0.0))
+        else:
+            # Positive offset is the visual left side of the direction of
+            # travel (screen Y grows downward).
+            normals.append(QPointF(dy / length, -dx / length))
+
+    result: list[QPointF] = []
+    for index, point in enumerate(points):
+        if index == 0:
+            normal = normals[0]
+            result.append(point + normal * offset)
+            continue
+        if index == len(points) - 1:
+            normal = normals[-1]
+            result.append(point + normal * offset)
+            continue
+
+        previous = normals[index - 1]
+        following = normals[index]
+        bisector = previous + following
+        bisector_length = math.hypot(bisector.x(), bisector.y())
+        if bisector_length <= 1e-6:
+            result.append(point + following * offset)
+            continue
+
+        bisector = QPointF(
+            bisector.x() / bisector_length,
+            bisector.y() / bisector_length,
+        )
+        denominator = bisector.x() * following.x() + bisector.y() * following.y()
+        if abs(denominator) <= 0.20:
+            miter_distance = offset
+        else:
+            miter_distance = offset / denominator
+
+        # Avoid extreme spikes at very acute control-node angles.
+        maximum = max(abs(offset), abs(offset) * 4.0)
+        miter_distance = max(-maximum, min(maximum, miter_distance))
+        result.append(point + bisector * miter_distance)
+
+    return result
+
+
+def _smooth_polyline(points: list[QPointF], samples_per_segment: int = 8) -> list[QPointF]:
+    """Sample an open Catmull-Rom curve through all control nodes."""
+    if len(points) < 3:
+        return [QPointF(point) for point in points]
+
+    result: list[QPointF] = []
+    samples = max(3, int(samples_per_segment))
+    for index in range(len(points) - 1):
+        p0 = points[max(0, index - 1)]
+        p1 = points[index]
+        p2 = points[index + 1]
+        p3 = points[min(len(points) - 1, index + 2)]
+        for step in range(samples):
+            t = step / samples
+            t2 = t * t
+            t3 = t2 * t
+            x = 0.5 * (
+                2.0 * p1.x()
+                + (-p0.x() + p2.x()) * t
+                + (2.0 * p0.x() - 5.0 * p1.x() + 4.0 * p2.x() - p3.x()) * t2
+                + (-p0.x() + 3.0 * p1.x() - 3.0 * p2.x() + p3.x()) * t3
+            )
+            y = 0.5 * (
+                2.0 * p1.y()
+                + (-p0.y() + p2.y()) * t
+                + (2.0 * p0.y() - 5.0 * p1.y() + 4.0 * p2.y() - p3.y()) * t2
+                + (-p0.y() + 3.0 * p1.y() - 3.0 * p2.y() + p3.y()) * t3
+            )
+            result.append(QPointF(x, y))
+    result.append(QPointF(points[-1]))
+    return result
+
+
+class _ContinuousRoadNodeHandle(QGraphicsEllipseItem):
+    """Draggable child handle used to reshape a continuous road."""
+
+    RADIUS_PX = 7.0
+
+    def __init__(self, road: "ContinuousRoadItem", index: int):
+        radius = self.RADIUS_PX
+        super().__init__(-radius, -radius, radius * 2.0, radius * 2.0, road)
+        self.road = road
+        self.index = int(index)
+        self._syncing = False
+        self.setFlags(
+            QGraphicsItem.GraphicsItemFlag.ItemIsMovable
+            | QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges
+        )
+        self.setAcceptHoverEvents(True)
+        self.setZValue(5000)
+        self.setPen(QPen(QColor(235, 245, 250), 1.5))
+        self.setBrush(QColor(40, 185, 225))
+        self.setToolTip(
+            "Drag to reshape the road. Double-click a node to remove it."
+        )
+
+    def itemChange(self, change, value):
+        if (
+            change == QGraphicsItem.GraphicsItemChange.ItemPositionChange
+            and isinstance(value, QPointF)
+            and not self._syncing
+        ):
+            return self.road.snap_node_local(self.index, value)
+
+        result = super().itemChange(change, value)
+        if (
+            change == QGraphicsItem.GraphicsItemChange.ItemPositionHasChanged
+            and not self._syncing
+        ):
+            self.road.node_handle_moved(self.index, self.pos())
+        return result
+
+    def mousePressEvent(self, event):
+        self.road.setSelected(True)
+        scene = self.scene()
+        if scene is not None and hasattr(scene, "window"):
+            scene.window.begin_canvas_undo("Reshape continuous road")
+        super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        super().mouseReleaseEvent(event)
+        scene = self.scene()
+        if scene is not None and hasattr(scene, "window"):
+            scene.window.end_canvas_undo()
+
+    def mouseDoubleClickEvent(self, event):
+        if len(self.road.points_m) <= 2:
+            event.accept()
+            return
+        scene = self.scene()
+        if scene is not None and hasattr(scene, "window"):
+            scene.window._begin_undo_transaction("Remove continuous-road node")
+        self.road.remove_node(self.index)
+        if scene is not None and hasattr(scene, "window"):
+            scene.window._commit_undo_transaction()
+        event.accept()
 
 class StraightRoadItem(TrackItem):
     TYPE_NAME = "straight_road"
@@ -184,6 +347,339 @@ class StraightRoadItem(TrackItem):
             + f"\nLength: {self.length_m:.1f} m"
             + f"\nWidth: {self.width_m:.1f} m"
         )
+
+
+class ContinuousRoadItem(TrackItem):
+    """One editable road following an arbitrary connected polyline."""
+
+    TYPE_NAME = "continuous_road"
+    DISPLAY_NAME = "Continuous Road"
+
+    def __init__(
+        self,
+        points_m: list[tuple[float, float]] | None = None,
+        width_m: float = DEFAULT_ROAD_WIDTH_M,
+        smooth: bool = False,
+        object_id: str | None = None,
+    ):
+        super().__init__(object_id=object_id)
+        self.width_m = max(1.0, float(width_m))
+        self.smooth = bool(smooth)
+        self.points_m = self._clean_points(
+            points_m or [(0.0, 0.0), (DEFAULT_ROAD_LENGTH_M, 0.0)]
+        )
+        self._node_handles: list[_ContinuousRoadNodeHandle] = []
+        self._rebuild_node_handles()
+
+    @staticmethod
+    def _clean_points(points) -> list[tuple[float, float]]:
+        cleaned: list[tuple[float, float]] = []
+        for value in points:
+            if not isinstance(value, (list, tuple)) or len(value) < 2:
+                continue
+            point = (float(value[0]), float(value[1]))
+            if cleaned and math.hypot(
+                point[0] - cleaned[-1][0],
+                point[1] - cleaned[-1][1],
+            ) < 0.05:
+                continue
+            cleaned.append(point)
+        if len(cleaned) < 2:
+            return [(0.0, 0.0), (DEFAULT_ROAD_LENGTH_M, 0.0)]
+        return cleaned
+
+    @property
+    def total_length_m(self) -> float:
+        points = self.rendered_points_px()
+        return sum(
+            math.hypot(end.x() - start.x(), end.y() - start.y())
+            / PIXELS_PER_METER
+            for start, end in zip(points, points[1:])
+        )
+
+    @property
+    def length_m(self) -> float:
+        """Expose total length to the shared effective-dimension summary."""
+        return self.total_length_m
+
+    def supports_guide_line(self) -> bool:
+        return True
+
+    def supports_road_markings(self) -> bool:
+        return True
+
+    def local_points_px(self) -> list[QPointF]:
+        return [
+            QPointF(x_m * PIXELS_PER_METER, -y_m * PIXELS_PER_METER)
+            for x_m, y_m in self.points_m
+        ]
+
+    def scene_points(self) -> list[QPointF]:
+        return [self.mapToScene(point) for point in self.local_points_px()]
+
+    def rendered_points_px(self) -> list[QPointF]:
+        points = self.local_points_px()
+        return _smooth_polyline(points) if self.smooth else points
+
+    def set_scene_points(self, scene_points: list[QPointF]):
+        if len(scene_points) < 2:
+            return
+        local_points = [self.mapFromScene(point) for point in scene_points]
+        self.set_points_m(
+            [
+                (
+                    point.x() / PIXELS_PER_METER,
+                    -point.y() / PIXELS_PER_METER,
+                )
+                for point in local_points
+            ]
+        )
+
+    def set_points_m(self, points_m):
+        cleaned = self._clean_points(points_m)
+        self.prepareGeometryChange()
+        self.points_m = cleaned
+        self._rebuild_node_handles()
+        self.update()
+        scene = self.scene()
+        if scene is not None:
+            scene.update()
+
+    def append_scene_point(self, scene_point: QPointF):
+        points = self.scene_points()
+        points.append(QPointF(scene_point))
+        self.set_scene_points(points)
+
+    def remove_node(self, index: int):
+        if len(self.points_m) <= 2 or not (0 <= index < len(self.points_m)):
+            return
+        points = list(self.points_m)
+        del points[index]
+        self.set_points_m(points)
+
+    def _rebuild_node_handles(self):
+        scene = self.scene()
+        for handle in self._node_handles:
+            handle.setParentItem(None)
+            if scene is not None:
+                scene.removeItem(handle)
+        self._node_handles.clear()
+
+        selected = self.isSelected()
+        for index, point in enumerate(self.local_points_px()):
+            handle = _ContinuousRoadNodeHandle(self, index)
+            handle._syncing = True
+            handle.setPos(point)
+            handle._syncing = False
+            handle.setVisible(selected)
+            self._node_handles.append(handle)
+
+    def snap_node_local(self, index: int, proposed_local: QPointF) -> QPointF:
+        scene = self.scene()
+        if scene is None:
+            return proposed_local
+
+        proposed_scene = self.mapToScene(proposed_local)
+        heading = None
+        points = self.local_points_px()
+        if len(points) >= 2:
+            if index == 0:
+                neighbor_scene = self.mapToScene(points[1])
+                heading = math.degrees(
+                    math.atan2(
+                        proposed_scene.y() - neighbor_scene.y(),
+                        proposed_scene.x() - neighbor_scene.x(),
+                    )
+                )
+            elif index == len(points) - 1:
+                neighbor_scene = self.mapToScene(points[-2])
+                heading = math.degrees(
+                    math.atan2(
+                        proposed_scene.y() - neighbor_scene.y(),
+                        proposed_scene.x() - neighbor_scene.x(),
+                    )
+                )
+
+        snapped_scene = scene.snap_drawing_point(
+            proposed_scene,
+            exclude_item=self,
+            heading_deg=heading,
+        )
+        snapped_local = self.mapFromScene(snapped_scene)
+
+        # Do not let a handle collapse onto an adjacent node.
+        minimum_px = 0.25 * PIXELS_PER_METER
+        for neighbor_index in (index - 1, index + 1):
+            if not (0 <= neighbor_index < len(points)):
+                continue
+            neighbor = points[neighbor_index]
+            if math.hypot(
+                snapped_local.x() - neighbor.x(),
+                snapped_local.y() - neighbor.y(),
+            ) < minimum_px:
+                return points[index]
+        return snapped_local
+
+    def node_handle_moved(self, index: int, local_point: QPointF):
+        if not (0 <= index < len(self.points_m)):
+            return
+        self.prepareGeometryChange()
+        self.points_m[index] = (
+            local_point.x() / PIXELS_PER_METER,
+            -local_point.y() / PIXELS_PER_METER,
+        )
+        self.update()
+        scene = self.scene()
+        if scene is not None:
+            scene.update()
+            if hasattr(scene, "notify_selection_or_geometry_changed"):
+                scene.notify_selection_or_geometry_changed()
+
+    def center_path(self) -> QPainterPath:
+        return _path_from_points(self.rendered_points_px())
+
+    def boundingRect(self) -> QRectF:
+        path = self.center_path()
+        stroker = QPainterPathStroker()
+        stroker.setWidth(self.width_m * PIXELS_PER_METER + 20.0)
+        stroker.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+        return stroker.createStroke(path).boundingRect()
+
+    def shape(self) -> QPainterPath:
+        stroker = QPainterPathStroker()
+        stroker.setWidth(self.width_m * PIXELS_PER_METER)
+        stroker.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+        return stroker.createStroke(self.center_path())
+
+    @staticmethod
+    def _configure_path_pen(pen: QPen):
+        pen.setCapStyle(Qt.PenCapStyle.FlatCap)
+        pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+
+    def paint(self, painter: QPainter, option, widget=None):
+        points = self.rendered_points_px()
+        center_path = _path_from_points(points)
+        road_width_px = self.width_m * PIXELS_PER_METER
+
+        if self.isSelected():
+            selection_pen = QPen(SELECTION_COLOR, road_width_px + 7.0)
+            self._configure_path_pen(selection_pen)
+            painter.setPen(selection_pen)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawPath(center_path)
+
+        road_pen = QPen(ROAD_COLOR, road_width_px)
+        self._configure_path_pen(road_pen)
+        painter.setPen(road_pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawPath(center_path)
+
+        edge_offset = max(1.0, road_width_px / 2.0 - EDGE_LINE_INSET_PX)
+        if self.show_edge_a:
+            pen = self.road_marking_pen("edge_a", EDGE_LINE_WIDTH_PX)
+            self._configure_path_pen(pen)
+            painter.setPen(pen)
+            painter.drawPath(_path_from_points(_offset_polyline(points, edge_offset)))
+
+        if self.show_edge_b:
+            pen = self.road_marking_pen("edge_b", EDGE_LINE_WIDTH_PX)
+            self._configure_path_pen(pen)
+            painter.setPen(pen)
+            painter.drawPath(_path_from_points(_offset_polyline(points, -edge_offset)))
+
+        if self.show_center_line:
+            pen = self.road_marking_pen("center", CENTER_LINE_WIDTH_PX)
+            self._configure_path_pen(pen)
+            painter.setPen(pen)
+            painter.drawPath(center_path)
+
+        if self.guide_enabled:
+            guide_offset = -self.resolved_guide_offset_m() * PIXELS_PER_METER
+            pen = self.guide_pen()
+            self._configure_path_pen(pen)
+            painter.setPen(pen)
+            painter.drawPath(
+                _path_from_points(_offset_polyline(points, guide_offset))
+            )
+
+        self.draw_connection_handles(painter)
+
+    def connection_points_local(self) -> list[dict]:
+        points = self.rendered_points_px()
+        if len(points) < 2:
+            return []
+
+        start_delta = points[0] - points[1]
+        end_delta = points[-1] - points[-2]
+        return [
+            {
+                "name": "start",
+                "pos": points[0],
+                "heading_deg": math.degrees(
+                    math.atan2(start_delta.y(), start_delta.x())
+                ),
+            },
+            {
+                "name": "end",
+                "pos": points[-1],
+                "heading_deg": math.degrees(
+                    math.atan2(end_delta.y(), end_delta.x())
+                ),
+            },
+        ]
+
+    def itemChange(self, change, value):
+        result = super().itemChange(change, value)
+        if change == QGraphicsItem.GraphicsItemChange.ItemSelectedHasChanged:
+            for handle in getattr(self, "_node_handles", []):
+                handle.setVisible(bool(value))
+        return result
+
+    def to_dict(self) -> dict:
+        data = self.base_dict()
+        data.update(
+            {
+                "points_m": [
+                    [round(x_m, 4), round(y_m, 4)]
+                    for x_m, y_m in self.points_m
+                ],
+                "width_m": self.width_m,
+                "smooth": self.smooth,
+                "guide_line": self.guide_dict(),
+                "road_markings": self.road_marking_dict(),
+            }
+        )
+        return data
+
+    @classmethod
+    def from_dict(cls, data: dict):
+        item = cls(
+            points_m=data.get("points_m"),
+            width_m=float(data.get("width_m", DEFAULT_ROAD_WIDTH_M)),
+            smooth=bool(data.get("smooth", False)),
+            object_id=data.get("id"),
+        )
+        item.setPos(
+            world_to_scene(
+                float(data.get("x", 0.0)),
+                float(data.get("y", 0.0)),
+            )
+        )
+        item.setRotation(float(data.get("rotation_deg", 0.0)))
+        item.load_guide_dict(data.get("guide_line"))
+        item.load_road_marking_dict(data.get("road_markings"))
+        return item
+
+    def selection_text(self) -> str:
+        return (
+            super().selection_text()
+            + f"\nNodes: {len(self.points_m)}"
+            + f"\nLength: {self.total_length_m:.1f} m"
+            + f"\nWidth: {self.width_m:.1f} m"
+            + ("\nCorners: Smooth" if self.smooth else "\nCorners: Straight")
+            + "\nDrag cyan nodes to reshape; double-click to remove a node."
+        )
+
 
 class Curve90RoadItem(TrackItem):
     """Quarter-circle road.

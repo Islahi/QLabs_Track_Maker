@@ -233,6 +233,121 @@ def spawn_straight_spline(qlabs, p1, p2, width, color, z=ROAD_Z):
     )
 
 
+def spawn_polyline_spline(qlabs, points, width, color, z=ROAD_Z):
+    """Spawn one linear QLabs spline actor for a connected point sequence."""
+    if len(points) < 2:
+        return
+    spline = QLabsSplineLine(qlabs)
+    spline.spawn(
+        location=[0, 0, 0],
+        scale=[1, 1, 1],
+        configuration=QLabsSplineLine.LINEAR,
+    )
+    spline.set_points(
+        color=color,
+        pointList=[
+            [point[0], point[1], z, width]
+            for point in points
+        ],
+        alignEndPointTangents=False,
+    )
+
+
+def polyline_offset_design(points, offset):
+    """Offset an open local-world polyline with bounded miter joins."""
+    if len(points) < 2 or abs(offset) <= 1e-9:
+        return list(points)
+
+    normals = []
+    for start, end in zip(points, points[1:]):
+        dx = float(end[0]) - float(start[0])
+        dy = float(end[1]) - float(start[1])
+        length = math.hypot(dx, dy)
+        normals.append(
+            (0.0, 0.0)
+            if length <= 1e-9
+            else (-dy / length, dx / length)
+        )
+
+    result = []
+    for index, point in enumerate(points):
+        px, py = float(point[0]), float(point[1])
+        if index == 0:
+            nx, ny = normals[0]
+            result.append((px + nx * offset, py + ny * offset))
+            continue
+        if index == len(points) - 1:
+            nx, ny = normals[-1]
+            result.append((px + nx * offset, py + ny * offset))
+            continue
+
+        previous = normals[index - 1]
+        following = normals[index]
+        bx = previous[0] + following[0]
+        by = previous[1] + following[1]
+        magnitude = math.hypot(bx, by)
+        if magnitude <= 1e-6:
+            result.append((px + following[0] * offset, py + following[1] * offset))
+            continue
+        bx /= magnitude
+        by /= magnitude
+        denominator = bx * following[0] + by * following[1]
+        distance = offset if abs(denominator) <= 0.20 else offset / denominator
+        maximum = max(abs(offset), abs(offset) * 4.0)
+        distance = clamp(distance, -maximum, maximum)
+        result.append((px + bx * distance, py + by * distance))
+    return result
+
+
+def smooth_polyline_design(points, samples_per_segment=8):
+    """Sample an open Catmull-Rom curve through continuous-road nodes."""
+    if len(points) < 3:
+        return list(points)
+    result = []
+    samples = max(3, int(samples_per_segment))
+    for index in range(len(points) - 1):
+        p0 = points[max(0, index - 1)]
+        p1 = points[index]
+        p2 = points[index + 1]
+        p3 = points[min(len(points) - 1, index + 2)]
+        for step in range(samples):
+            t = step / samples
+            t2 = t * t
+            t3 = t2 * t
+            x = 0.5 * (
+                2.0 * p1[0]
+                + (-p0[0] + p2[0]) * t
+                + (2.0 * p0[0] - 5.0 * p1[0] + 4.0 * p2[0] - p3[0]) * t2
+                + (-p0[0] + 3.0 * p1[0] - 3.0 * p2[0] + p3[0]) * t3
+            )
+            y = 0.5 * (
+                2.0 * p1[1]
+                + (-p0[1] + p2[1]) * t
+                + (2.0 * p0[1] - 5.0 * p1[1] + 4.0 * p2[1] - p3[1]) * t2
+                + (-p0[1] + 3.0 * p1[1] - 3.0 * p2[1] + p3[1]) * t3
+            )
+            result.append((x, y))
+    result.append((float(points[-1][0]), float(points[-1][1])))
+    return result
+
+
+def continuous_local_points(obj):
+    points = [
+        (float(point[0]), float(point[1]))
+        for point in (obj.get("points_m", []) or [])
+        if isinstance(point, (list, tuple)) and len(point) >= 2
+    ]
+    return smooth_polyline_design(points) if bool(obj.get("smooth", False)) else points
+
+
+def scaled_polyline_points(obj, points):
+    return [
+        scaled_world_point(obj, float(point[0]), float(point[1]))
+        for point in points
+        if isinstance(point, (list, tuple)) and len(point) >= 2
+    ]
+
+
 def spawn_arc_spline(
     qlabs,
     center,
@@ -295,6 +410,62 @@ def spawn_dashed_straight(
         b = (p1[0] + ux * end, p1[1] + uy * end)
         spawn_straight_spline(qlabs, a, b, width, color, z=z)
         cursor = end + gap
+
+
+def spawn_dashed_polyline(
+    qlabs,
+    points,
+    width,
+    color,
+    z=GUIDE_Z,
+    dash_design_m=DASH_LENGTH_DESIGN_M,
+    gap_design_m=DASH_GAP_DESIGN_M,
+):
+    """Draw a continuous dash pattern across polyline corners."""
+    if len(points) < 2:
+        return
+    scale = project_scale()
+    dash = max(0.003, float(dash_design_m) * scale)
+    gap = max(0.002, float(gap_design_m) * scale)
+    drawing = True
+    remaining_pattern = dash
+    current_dash = []
+
+    for segment_start, segment_end in zip(points, points[1:]):
+        x = float(segment_start[0])
+        y = float(segment_start[1])
+        dx = float(segment_end[0]) - x
+        dy = float(segment_end[1]) - y
+        segment_length = math.hypot(dx, dy)
+        if segment_length <= 1e-9:
+            continue
+        ux = dx / segment_length
+        uy = dy / segment_length
+        remaining_segment = segment_length
+
+        while remaining_segment > 1e-9:
+            step = min(remaining_segment, remaining_pattern)
+            next_point = (x + ux * step, y + uy * step)
+            if drawing:
+                if not current_dash:
+                    current_dash.append((x, y))
+                current_dash.append(next_point)
+
+            x, y = next_point
+            remaining_segment -= step
+            remaining_pattern -= step
+
+            if remaining_pattern <= 1e-9:
+                if drawing and len(current_dash) >= 2:
+                    spawn_polyline_spline(
+                        qlabs, current_dash, width, color, z=z
+                    )
+                    current_dash = []
+                drawing = not drawing
+                remaining_pattern = dash if drawing else gap
+
+    if drawing and len(current_dash) >= 2:
+        spawn_polyline_spline(qlabs, current_dash, width, color, z=z)
 
 
 def spawn_dashed_arc(
@@ -393,6 +564,11 @@ def spawn_road_surface(qlabs, obj):
     scale = project_scale()
     width = max(0.001, float(obj.get("width_m", 6.0)) * scale)
 
+    if obj_type == "continuous_road":
+        points = scaled_polyline_points(obj, continuous_local_points(obj))
+        spawn_polyline_spline(qlabs, points, width, ROAD_COLOR)
+        return
+
     if obj_type == "straight_road":
         length = float(obj.get("length_m", 20.0))
         p1 = scaled_world_point(obj, -length / 2.0, 0.0)
@@ -478,6 +654,22 @@ def spawn_marking_straight(qlabs, p1, p2, width, color, style):
         spawn_straight_spline(qlabs, p1, p2, width, color, z=MARKING_Z)
 
 
+def spawn_marking_polyline(qlabs, obj, local_points, width, color, style):
+    points = scaled_polyline_points(obj, local_points)
+    if style == "dashed":
+        spawn_dashed_polyline(
+            qlabs,
+            points,
+            width,
+            color,
+            z=MARKING_Z,
+            dash_design_m=CENTER_DASH_LENGTH_DESIGN_M,
+            gap_design_m=CENTER_DASH_GAP_DESIGN_M,
+        )
+    else:
+        spawn_polyline_spline(qlabs, points, width, color, z=MARKING_Z)
+
+
 def spawn_marking_local_straight(qlabs, obj, p1_local, p2_local, width, color, style):
     p1 = scaled_world_point(obj, p1_local[0], p1_local[1])
     p2 = scaled_world_point(obj, p2_local[0], p2_local[1])
@@ -539,6 +731,40 @@ def spawn_road_markings(qlabs, obj):
     edge_b_style = marking_style(markings, "edge_b", "solid")
     end_color = marking_color(markings, "end_bar", "white")
     end_style = marking_style(markings, "end_bar", "solid")
+
+    # Continuous polyline road ------------------------------------
+    if obj_type == "continuous_road":
+        local_points = continuous_local_points(obj)
+        if len(local_points) < 2:
+            return
+        if show_edge_a:
+            spawn_marking_polyline(
+                qlabs,
+                obj,
+                polyline_offset_design(local_points, edge_offset),
+                edge_width,
+                edge_a_color,
+                edge_a_style,
+            )
+        if show_edge_b:
+            spawn_marking_polyline(
+                qlabs,
+                obj,
+                polyline_offset_design(local_points, -edge_offset),
+                edge_width,
+                edge_b_color,
+                edge_b_style,
+            )
+        if show_center:
+            spawn_marking_polyline(
+                qlabs,
+                obj,
+                local_points,
+                center_width,
+                center_color,
+                center_style,
+            )
+        return
 
     # Straight road ------------------------------------------------
     if obj_type == "straight_road":
@@ -704,7 +930,19 @@ def _connection_points_design(obj):
 
     local = []
 
-    if obj_type == "straight_road":
+    if obj_type == "continuous_road":
+        points = continuous_local_points(obj)
+        if len(points) >= 2:
+            start_dx = points[1][0] - points[0][0]
+            start_dy = points[1][1] - points[0][1]
+            end_dx = points[-1][0] - points[-2][0]
+            end_dy = points[-1][1] - points[-2][1]
+            local = [
+                (points[0][0], points[0][1], start_dx, start_dy),
+                (points[-1][0], points[-1][1], end_dx, end_dy),
+            ]
+
+    elif obj_type == "straight_road":
         length = float(obj.get("length_m", 20.0))
         local = [
             (-length / 2.0, 0.0, 1.0, 0.0),
@@ -872,6 +1110,7 @@ def spawn_guide(qlabs, obj):
 
     obj_type = str(obj.get("type", ""))
     if obj_type not in (
+        "continuous_road",
         "straight_road",
         "road_end",
         "curve_45",
@@ -885,6 +1124,22 @@ def spawn_guide(qlabs, obj):
     width = guide_width_effective(obj)
     color = guide_color(obj)
     offset_design = resolved_guide_offset_design(obj)
+
+    if obj_type == "continuous_road":
+        local_points = continuous_local_points(obj)
+        guide_points = scaled_polyline_points(
+            obj,
+            polyline_offset_design(local_points, -offset_design),
+        )
+        if style == "dashed":
+            spawn_dashed_polyline(
+                qlabs, guide_points, width, color, z=GUIDE_Z
+            )
+        else:
+            spawn_polyline_spline(
+                qlabs, guide_points, width, color, z=GUIDE_Z
+            )
+        return
 
     if obj_type in ("straight_road", "road_end"):
         length = float(obj.get("length_m", 20.0))
@@ -3077,6 +3332,7 @@ if __name__ == "__main__":
 # ================================================================
 
 _ROAD_TYPES = {
+    "continuous_road",
     "straight_road",
     "road_end",
     "curve_45",
@@ -3373,6 +3629,30 @@ class _FeatureSpecializer(ast.NodeTransformer):
                         operand=ast.Name(id="triggers", ctx=ast.Load()),
                     )
 
+        elif node.name in {
+            "spawn_road_surface",
+            "spawn_road_markings",
+            "_connection_points_design",
+            "spawn_guide",
+        }:
+            # Remove exact object-type branches that cannot occur in this map.
+            # This is especially important for continuous-road helpers: maps
+            # containing only legacy road pieces should not carry polyline
+            # drawing/export code, keeping generated files compact.
+            allowed_road_types = f["object_types"] & _ROAD_TYPES
+            body = []
+            for statement in node.body:
+                if isinstance(statement, ast.If):
+                    statement = _prune_string_if_chain(
+                        statement,
+                        "obj_type",
+                        allowed_road_types,
+                    )
+                    if statement is None:
+                        continue
+                body.append(statement)
+            node.body = body
+
         elif node.name == "main":
             new_body = []
             skip_next_qcar_if = False
@@ -3527,6 +3807,7 @@ def _prune_module(module: ast.Module) -> ast.Module:
 
 def _feature_summary(features: dict) -> list[str]:
     labels = {
+        "continuous_road": "continuous roads",
         "straight_road": "straight roads",
         "road_end": "road ends",
         "curve_45": "45-degree curves",

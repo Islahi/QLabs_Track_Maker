@@ -2,6 +2,7 @@
 
 from items.roads import (
     StraightRoadItem,
+    ContinuousRoadItem,
     Curve90RoadItem,
     Curve45RoadItem,
     TJunctionItem,
@@ -43,6 +44,7 @@ from items.reference import ReferenceImageItem
 
 TRACK_ITEM_CLASSES = {
     StraightRoadItem.TYPE_NAME: StraightRoadItem,
+    ContinuousRoadItem.TYPE_NAME: ContinuousRoadItem,
     Curve90RoadItem.TYPE_NAME: Curve90RoadItem,
     Curve45RoadItem.TYPE_NAME: Curve45RoadItem,
     TJunctionItem.TYPE_NAME: TJunctionItem,
