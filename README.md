@@ -9,15 +9,16 @@ The editor provides a 2-D, meter-based canvas with snapping, calibrated workspac
 ## Features
 
 - Build roads from straight sections, 45°/90° curves, intersections, T-junctions, road ends, and median walls.
-- Sketch CAD-style Line, three-point Arc, and Circle guides, connect them at endpoints or real intersections, then generate seamless road surfaces. Two-guide corners receive automatic circular fillets; branching junctions receive surface patches.
+- Sketch CAD-style Line, three-point Arc, and Circle guides, connect them at endpoints or real intersections, then generate seamless road surfaces. Two-guide corners receive automatic circular fillets, while crossing roads overlap directly without separate junction objects.
 - Draw connected continuous roads by clicking an arbitrary sequence of control nodes, then reshape them directly on the canvas.
-- Configure road widths, markings, colors, line styles, and component transforms.
+- Configure 1–12 total lanes while preserving per-lane width, plus road markings, colors, line styles, and component transforms.
 - Place traffic lights, road signs, crosswalks, pedestrians, animals, QCar2 actors, and trigger zones.
 - Add buildings, trees, benches, lamps, bins, planters, fountains, and other static scenery.
-- Automatically fill open space with urban, suburban, or park scenery while preserving a roadside reserve.
+- Automatically fill the whole canvas—or brush-select a rectangular area—with urban, suburban, or park scenery while preserving a roadside reserve.
 - Create manual movement paths for supported actors without relying on a QLabs navigation mesh.
 - Resize CAD road geometry directly with orange mouse handles; right-click a handle for exact position/radius and line-constraint controls. Generation removes the construction guides and leaves editable continuous roads with cyan point handles and right-click insert/delete controls.
-- Use endpoint/wall snapping, automatic horizontal/vertical line constraints, an adaptive grid, duplication, rotation, deletion, and undo.
+- Snap guide endpoints to guide connections, circle perimeters, and any point along a road centerline. Use automatic horizontal/vertical line constraints, an adaptive grid, duplication, rotation, deletion, and undo.
+- Trim unwanted guide sections between crossings; trimming a circle between two crossings converts the retained geometry to an editable arc, including half-circle layouts.
 - Import movable and resizable reference images for manual tracing.
 - Save complete editor projects as JSON and reopen them later.
 - Export a standalone Python script that connects to QLabs and builds the configured scene.
@@ -91,10 +92,10 @@ python main.py
 
 1. Open the **Setup** tab and select the project scale, canvas size, and target QLabs workspace.
 2. Adjust **Spline Z** if the generated road surface must sit above native workspace geometry.
-3. Use **Build → Sketch** to draw a **Line** (two clicks), **Arc** (start, point on arc, end), or **Circle** (center, radius). The selected sketch tool remains active after each shape so connected lines can be drawn without repeatedly choosing it. Endpoints snap to compatible guide/road endpoints and to the nearest logical point on a circle. Green nodes show actual guide intersections. Select a guide and drag its orange handles to resize it, or right-click a handle for precise editing. Click **Generate Road** to merge degree-two connections with automatic tangent fillets, patch branching junctions, and remove the construction guides. The resulting continuous roads remain editable with cyan nodes.
+3. Use **Build → Sketch** to draw a **Line** (two clicks), **Arc** (start, point on arc, end), or **Circle** (center, radius). The selected sketch tool remains active after each shape so connected lines can be drawn without repeatedly choosing it. Endpoints snap to compatible guide endpoints, circle perimeters, and the nearest point along an existing road centerline. Green nodes show actual guide intersections. Use **Trim** and click the unwanted section between crossings to remove excess construction geometry or turn a crossed circle into an arc. Select a guide and drag its orange handles to resize it, or right-click a handle for precise editing. Click **Generate Road** to merge degree-two connections with automatic tangent fillets, patch branching junctions, and remove the construction guides. The resulting continuous roads remain editable with cyan nodes.
    The original continuous-road tool remains available: left-click nodes; press **Enter** or right-click to finish, **Backspace** to remove the latest node, or **Esc** to cancel. Select a completed continuous road to drag its cyan nodes, insert/remove nodes, reverse its direction, or enable smooth corners.
-4. Use **Scenery** to place objects manually or auto-fill the editable canvas.
-5. Select an object to edit its position, orientation, dimensions, appearance, and behavior in the inspector.
+4. Use **Scenery** to place objects manually, fill the entire editable canvas, or activate the **Environment Brush** and drag one or more rectangular fill areas. The brush stays active until right-click or `Esc`.
+5. Select a road and set **Lanes** in the inspector. This is the total lane count; changing it preserves the current per-lane width and resizes the road. Select any object to edit its remaining position, orientation, dimensions, appearance, and behavior.
 6. Save the editable project with **File → Save**. Projects use the `.json` format.
 7. Choose **File → Export QLabs Setup** to generate a standalone `.py` file.
 8. Open the selected workspace in QLabs, then run the exported Python file in an environment with `qvl` installed.

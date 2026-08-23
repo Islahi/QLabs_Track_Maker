@@ -77,6 +77,16 @@ def make_tool_icon(kind: str, size: int = 30) -> QIcon:
         p.setBrush(AMBER)
         p.drawEllipse(QPointF(s - 4, cy), 2.8, 2.8)
 
+    elif kind == "sketch_trim":
+        p.setPen(QPen(ACCENT, 2.0, Qt.PenStyle.DashLine))
+        p.drawLine(QPointF(3, cy), QPointF(s - 3, cy))
+        p.setPen(QPen(DANGER, 2.0))
+        p.drawLine(QPointF(10, 7), QPointF(20, 23))
+        p.drawLine(QPointF(20, 7), QPointF(10, 23))
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.drawEllipse(QPointF(8, 6), 3.0, 3.0)
+        p.drawEllipse(QPointF(22, 6), 3.0, 3.0)
+
     elif kind == "generate_road":
         p.setPen(QPen(ACCENT, 1.5, Qt.PenStyle.DashLine))
         p.drawLine(QPointF(4, 7), QPointF(s - 4, 7))
@@ -86,6 +96,17 @@ def make_tool_icon(kind: str, size: int = 30) -> QIcon:
         p.drawLine(QPointF(cx - 3, 11), QPointF(cx - 3, s - 14))
         p.drawLine(QPointF(cx - 3, s - 14), QPointF(cx - 7, s - 18))
         p.drawLine(QPointF(cx - 3, s - 14), QPointF(cx + 1, s - 18))
+
+    elif kind == "area_fill":
+        p.setPen(QPen(GREEN, 1.7, Qt.PenStyle.DashLine))
+        p.setBrush(QColor(75, 200, 120, 45))
+        p.drawRect(QRectF(3.5, 4.5, s - 7, s - 9))
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QColor(65, 155, 80))
+        for point in (QPointF(10, 12), QPointF(21, 9), QPointF(15, 21)):
+            p.drawEllipse(point, 3.5, 3.5)
+        p.setBrush(QColor(110, 125, 145))
+        p.drawRect(QRectF(20, 17, 6, 7))
 
     elif kind == "continuous_road":
         p.setPen(_road_pen(7))

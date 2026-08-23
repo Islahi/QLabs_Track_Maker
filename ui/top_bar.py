@@ -459,6 +459,12 @@ class TopControlBar(QWidget):
             lambda checked: self.window.toggle_sketch_tool("circle", checked),
             checkable=True,
         )
+        self.sketch_trim_button = self._icon_button(
+            "sketch_trim",
+            "Trim guide segment between intersections (persistent tool)",
+            self.window.toggle_sketch_trim,
+            checkable=True,
+        )
         self.sketch_generate_button = self._icon_button(
             "generate_road",
             "Generate seamless roads and remove selected guides (all guides if none selected)",
@@ -468,6 +474,7 @@ class TopControlBar(QWidget):
             self.sketch_line_button,
             self.sketch_arc_button,
             self.sketch_circle_button,
+            self.sketch_trim_button,
             self.sketch_generate_button,
         ):
             row.addWidget(button)
@@ -673,6 +680,13 @@ class TopControlBar(QWidget):
             self.window.auto_fill_open_space,
         )
         row.addWidget(self.auto_fill_button)
+        self.area_fill_button = self._icon_button(
+            "area_fill",
+            "Environment brush: drag a rectangle and generate scenery only inside it",
+            self.window.toggle_scenery_brush,
+            checkable=True,
+        )
+        row.addWidget(self.area_fill_button)
 
         row.addStretch(1)
 

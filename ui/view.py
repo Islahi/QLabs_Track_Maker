@@ -193,6 +193,32 @@ class TrackView(QGraphicsView):
     def drawForeground(self, painter: QPainter, rect: QRectF):
         super().drawForeground(painter, rect)
 
+        brush_start = getattr(self.editor_window, "scenery_brush_start", None)
+        brush_preview = getattr(self.editor_window, "scenery_brush_preview", None)
+        if brush_start is not None and brush_preview is not None:
+            selection_rect = QRectF(brush_start, brush_preview).normalized()
+            brush_pen = QPen(QColor(75, 220, 130, 235), 2.0, Qt.PenStyle.DashLine)
+            brush_pen.setCosmetic(True)
+            painter.setPen(brush_pen)
+            painter.setBrush(QColor(75, 200, 120, 45))
+            painter.drawRect(selection_rect)
+
+        trim_preview = getattr(self.editor_window, "sketch_trim_preview", None)
+        if getattr(self.editor_window, "sketch_trim_active", False) and trim_preview is not None:
+            marker_radius = 7.0 / max(0.15, abs(self.transform().m11()))
+            trim_pen = QPen(QColor(235, 75, 90, 240), 2.2)
+            trim_pen.setCosmetic(True)
+            painter.setPen(trim_pen)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawLine(
+                QPointF(trim_preview.x() - marker_radius, trim_preview.y() - marker_radius),
+                QPointF(trim_preview.x() + marker_radius, trim_preview.y() + marker_radius),
+            )
+            painter.drawLine(
+                QPointF(trim_preview.x() - marker_radius, trim_preview.y() + marker_radius),
+                QPointF(trim_preview.x() + marker_radius, trim_preview.y() - marker_radius),
+            )
+
         # Real guide intersections are shown as green connection nodes. The
         # road generator also inserts these locations into both road paths.
         sketch_nodes = self.scene().sketch_connection_nodes()
@@ -290,6 +316,30 @@ class TrackView(QGraphicsView):
         event.accept()
 
     def mousePressEvent(self, event):
+        if getattr(self.editor_window, "scenery_brush_active", False):
+            if event.button() == Qt.MouseButton.LeftButton:
+                self.editor_window.begin_scenery_brush(
+                    self.mapToScene(event.position().toPoint())
+                )
+                event.accept()
+                return
+            if event.button() == Qt.MouseButton.RightButton:
+                self.editor_window.cancel_scenery_brush()
+                event.accept()
+                return
+
+        if getattr(self.editor_window, "sketch_trim_active", False):
+            if event.button() == Qt.MouseButton.LeftButton:
+                self.editor_window.trim_sketch_guide_at(
+                    self.mapToScene(event.position().toPoint())
+                )
+                event.accept()
+                return
+            if event.button() == Qt.MouseButton.RightButton:
+                self.editor_window.cancel_sketch_trim()
+                event.accept()
+                return
+
         if getattr(self.editor_window, "sketch_tool_mode", None) is not None:
             if event.button() == Qt.MouseButton.LeftButton:
                 self.editor_window.add_sketch_tool_point(
@@ -359,6 +409,14 @@ class TrackView(QGraphicsView):
         scene_pos = self.mapToScene(event.position().toPoint())
         x_m, y_m = scene_to_world(scene_pos)
         self.editor_window.update_cursor_label(x_m, y_m)
+        if getattr(self.editor_window, "scenery_brush_active", False):
+            self.editor_window.update_scenery_brush_preview(scene_pos)
+            event.accept()
+            return
+        if getattr(self.editor_window, "sketch_trim_active", False):
+            self.editor_window.update_sketch_trim_preview(scene_pos)
+            event.accept()
+            return
         if getattr(self.editor_window, "sketch_tool_mode", None) is not None:
             self.editor_window.update_sketch_tool_preview(scene_pos)
             event.accept()
@@ -378,12 +436,32 @@ class TrackView(QGraphicsView):
             event.accept()
             return
 
+        if (
+            getattr(self.editor_window, "scenery_brush_active", False)
+            and event.button() == Qt.MouseButton.LeftButton
+        ):
+            self.editor_window.finish_scenery_brush(
+                self.mapToScene(event.position().toPoint())
+            )
+            event.accept()
+            return
+
         super().mouseReleaseEvent(event)
 
         if event.button() == Qt.MouseButton.LeftButton:
             self.editor_window.end_canvas_undo()
 
     def keyPressEvent(self, event):
+        if getattr(self.editor_window, "scenery_brush_active", False):
+            if event.key() == Qt.Key.Key_Escape:
+                self.editor_window.cancel_scenery_brush()
+                event.accept()
+                return
+        if getattr(self.editor_window, "sketch_trim_active", False):
+            if event.key() == Qt.Key.Key_Escape:
+                self.editor_window.cancel_sketch_trim()
+                event.accept()
+                return
         if getattr(self.editor_window, "sketch_tool_mode", None) is not None:
             if event.key() == Qt.Key.Key_Escape:
                 self.editor_window.cancel_sketch_tool()

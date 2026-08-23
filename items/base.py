@@ -83,6 +83,7 @@ class TrackItem(QGraphicsItem):
         self.show_center_line = True
         self.show_edge_b = True
         self.show_end_bar = True
+        self.lane_count = 2
 
         self.edge_a_marking_color = DEFAULT_EDGE_A_MARKING_COLOR
         self.edge_a_marking_style = DEFAULT_EDGE_A_MARKING_STYLE
@@ -208,6 +209,7 @@ class TrackItem(QGraphicsItem):
             "end_bar": bool(self.show_end_bar),
             "end_bar_color": str(self.end_bar_marking_color),
             "end_bar_style": str(self.end_bar_marking_style),
+            "lane_count": int(self.lane_count),
         }
 
     def load_road_marking_dict(self, data: dict | None):
@@ -216,6 +218,7 @@ class TrackItem(QGraphicsItem):
         self.show_center_line = bool(data.get("center", True))
         self.show_edge_b = bool(data.get("edge_b", True))
         self.show_end_bar = bool(data.get("end_bar", True))
+        self.lane_count = max(1, min(12, int(data.get("lane_count", 2))))
 
         self.edge_a_marking_color = str(
             data.get("edge_a_color", DEFAULT_EDGE_A_MARKING_COLOR)
@@ -241,6 +244,17 @@ class TrackItem(QGraphicsItem):
         self.end_bar_marking_style = str(
             data.get("end_bar_style", DEFAULT_END_BAR_MARKING_STYLE)
         )
+
+    def lane_divider_offsets_px(self, road_width_px: float) -> list[float]:
+        """Offsets for the boundaries between all configured traffic lanes."""
+        if not self.show_center_line or self.lane_count <= 1:
+            return []
+        width = max(1.0, float(road_width_px))
+        lane_width = width / float(self.lane_count)
+        return [
+            -width / 2.0 + lane_width * index
+            for index in range(1, self.lane_count)
+        ]
 
     def road_marking_pen(self, key: str, width_px: float) -> QPen:
         """Return the editor pen for one configurable road marking."""

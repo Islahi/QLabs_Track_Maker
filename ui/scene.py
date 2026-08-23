@@ -15,7 +15,16 @@ from config import (
 )
 from core.geometry import endpoints_face_each_other, point_distance, snap_value
 from items.base import TrackItem
-from items.roads import StraightRoadItem, RoadEndItem, MedianWallItem
+from items.roads import (
+    StraightRoadItem,
+    ContinuousRoadItem,
+    Curve45RoadItem,
+    Curve90RoadItem,
+    TJunctionItem,
+    CrossIntersectionItem,
+    RoadEndItem,
+    MedianWallItem,
+)
 
 
 class TrackScene(QGraphicsScene):
@@ -246,6 +255,78 @@ class TrackScene(QGraphicsScene):
     # Combined snapping
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _nearest_point_on_segment(
+        point: QPointF,
+        start: QPointF,
+        end: QPointF,
+    ) -> tuple[QPointF, float]:
+        dx = end.x() - start.x()
+        dy = end.y() - start.y()
+        length_squared = dx * dx + dy * dy
+        if length_squared <= 1e-12:
+            candidate = QPointF(start)
+        else:
+            ratio = (
+                (point.x() - start.x()) * dx
+                + (point.y() - start.y()) * dy
+            ) / length_squared
+            ratio = max(0.0, min(1.0, ratio))
+            candidate = QPointF(
+                start.x() + ratio * dx,
+                start.y() + ratio * dy,
+            )
+        return candidate, point_distance(point, candidate)
+
+    def road_centerline_polylines(self, item: TrackItem) -> list[list[QPointF]]:
+        """Return scene-space centerlines available as road snap targets."""
+        if isinstance(item, ContinuousRoadItem):
+            if bool(getattr(item, "auto_connector", False)):
+                return []
+            points = item.rendered_points_px()
+            return [[item.mapToScene(point) for point in points]] if len(points) >= 2 else []
+
+        if isinstance(item, (Curve45RoadItem, Curve90RoadItem)):
+            path = item.center_path()
+            sample_count = 40 if isinstance(item, Curve45RoadItem) else 72
+            return [[
+                item.mapToScene(path.pointAtPercent(index / float(sample_count)))
+                for index in range(sample_count + 1)
+            ]]
+
+        if isinstance(item, (StraightRoadItem, RoadEndItem)):
+            half_length = item.length_px / 2.0
+            return [[
+                item.mapToScene(QPointF(-half_length, 0.0)),
+                item.mapToScene(QPointF(half_length, 0.0)),
+            ]]
+
+        if isinstance(item, TJunctionItem):
+            return [
+                [
+                    item.mapToScene(QPointF(-item.arm_px, 0.0)),
+                    item.mapToScene(QPointF(item.arm_px, 0.0)),
+                ],
+                [
+                    item.mapToScene(QPointF(0.0, 0.0)),
+                    item.mapToScene(QPointF(0.0, item.arm_px)),
+                ],
+            ]
+
+        if isinstance(item, CrossIntersectionItem):
+            return [
+                [
+                    item.mapToScene(QPointF(-item.arm_px, 0.0)),
+                    item.mapToScene(QPointF(item.arm_px, 0.0)),
+                ],
+                [
+                    item.mapToScene(QPointF(0.0, -item.arm_px)),
+                    item.mapToScene(QPointF(0.0, item.arm_px)),
+                ],
+            ]
+
+        return []
+
     def snap_drawing_point(
         self,
         scene_point: QPointF,
@@ -295,6 +376,20 @@ class TrackScene(QGraphicsScene):
                 candidate = candidate_getter(scene_point)
                 if candidate is not None:
                     distance = point_distance(scene_point, candidate)
+                    if distance <= ENDPOINT_SNAP_DISTANCE_PX and distance < best_distance:
+                        best_distance = distance
+                        best_point = candidate
+
+            # A guide may terminate anywhere on an existing road, not only at
+            # its predefined endpoints. This is essential for T-connections
+            # and for starting a new sketch from the middle of a road.
+            for centerline in self.road_centerline_polylines(target_item):
+                for start, end in zip(centerline, centerline[1:]):
+                    candidate, distance = self._nearest_point_on_segment(
+                        scene_point,
+                        start,
+                        end,
+                    )
                     if distance <= ENDPOINT_SNAP_DISTANCE_PX and distance < best_distance:
                         best_distance = distance
                         best_point = candidate

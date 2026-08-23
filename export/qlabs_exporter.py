@@ -576,10 +576,6 @@ def spawn_road_surface(qlabs, obj):
 
     if obj_type == "continuous_road":
         if bool(obj.get("auto_connector", False)):
-            half = max(0.05, float(obj.get("width_m", 6.0)) / 2.0)
-            p1 = scaled_world_point(obj, -half, 0.0)
-            p2 = scaled_world_point(obj, half, 0.0)
-            spawn_straight_spline(qlabs, p1, p2, width, ROAD_COLOR)
             return
         points = scaled_polyline_points(obj, continuous_local_points(obj))
         spawn_polyline_spline(qlabs, points, width, ROAD_COLOR)
@@ -725,6 +721,11 @@ def spawn_marking_arc(
 def spawn_road_markings(qlabs, obj):
     """Export each road marking with its own visibility/color/style."""
     obj_type = str(obj.get("type", ""))
+    # Older project files may still contain the temporary automatic junction
+    # objects.  They are deliberately ignored so reopening/exporting an old
+    # drawing cannot bring the circular junction dot back.
+    if obj_type == "continuous_road" and bool(obj.get("auto_connector", False)):
+        return
     scale = project_scale()
 
     edge_width = marking_width_effective(EDGE_LINE_WIDTH_DESIGN_M)
@@ -738,6 +739,15 @@ def spawn_road_markings(qlabs, obj):
     show_center = bool(markings.get("center", True))
     show_edge_b = bool(markings.get("edge_b", True))
     show_end_bar = bool(markings.get("end_bar", True))
+    lane_count = max(1, min(12, int(markings.get("lane_count", 2))))
+    lane_divider_offsets = (
+        [
+            -half_width + road_width_design * index / float(lane_count)
+            for index in range(1, lane_count)
+        ]
+        if show_center and lane_count > 1
+        else []
+    )
 
     edge_a_color = marking_color(markings, "edge_a", "white")
     edge_a_style = marking_style(markings, "edge_a", "solid")
@@ -771,11 +781,11 @@ def spawn_road_markings(qlabs, obj):
                 edge_b_color,
                 edge_b_style,
             )
-        if show_center:
+        for divider_offset in lane_divider_offsets:
             spawn_marking_polyline(
                 qlabs,
                 obj,
-                local_points,
+                polyline_offset_design(local_points, divider_offset),
                 center_width,
                 center_color,
                 center_style,
@@ -795,9 +805,10 @@ def spawn_road_markings(qlabs, obj):
                 qlabs, obj, (-length / 2.0, -edge_offset),
                 (length / 2.0, -edge_offset), edge_width, edge_b_color, edge_b_style
             )
-        if show_center:
+        for divider_offset in lane_divider_offsets:
             spawn_marking_local_straight(
-                qlabs, obj, (-length / 2.0, 0.0), (length / 2.0, 0.0),
+                qlabs, obj, (-length / 2.0, divider_offset),
+                (length / 2.0, divider_offset),
                 center_width, center_color, center_style
             )
         return
@@ -815,9 +826,10 @@ def spawn_road_markings(qlabs, obj):
                 qlabs, obj, (-length / 2.0, -edge_offset),
                 (length / 2.0, -edge_offset), edge_width, edge_b_color, edge_b_style
             )
-        if show_center:
+        for divider_offset in lane_divider_offsets:
             spawn_marking_local_straight(
-                qlabs, obj, (-length / 2.0, 0.0), (length / 2.0 - 0.90, 0.0),
+                qlabs, obj, (-length / 2.0, divider_offset),
+                (length / 2.0 - 0.90, divider_offset),
                 center_width, center_color, center_style
             )
         if show_end_bar:
@@ -849,9 +861,11 @@ def spawn_road_markings(qlabs, obj):
                 qlabs, center, yaw, inner_radius, turn, edge_width,
                 edge_b_color, edge_b_style
             )
-        if show_center:
+        for divider_offset in lane_divider_offsets:
             spawn_marking_arc(
-                qlabs, center, yaw, radius_design * scale, turn, center_width,
+                qlabs, center, yaw,
+                max(0.001, (radius_design + divider_offset) * scale),
+                turn, center_width,
                 center_color, center_style
             )
         return
@@ -878,11 +892,11 @@ def spawn_road_markings(qlabs, obj):
                 qlabs, obj, (+edge_offset, -half_width), (+edge_offset, -arm),
                 edge_width, edge_b_color, edge_b_style
             )
-        if show_center:
+        for divider_offset in lane_divider_offsets:
             for a, b in (
-                ((-arm, 0.0), (-half_width, 0.0)),
-                ((half_width, 0.0), (arm, 0.0)),
-                ((0.0, -half_width), (0.0, -arm)),
+                ((-arm, divider_offset), (-half_width, divider_offset)),
+                ((half_width, divider_offset), (arm, divider_offset)),
+                ((-divider_offset, -half_width), (-divider_offset, -arm)),
             ):
                 spawn_marking_local_straight(
                     qlabs, obj, a, b, center_width, center_color, center_style
@@ -914,12 +928,12 @@ def spawn_road_markings(qlabs, obj):
                     qlabs, obj, (+edge_offset, y1), (+edge_offset, y2),
                     edge_width, edge_b_color, edge_b_style
                 )
-        if show_center:
+        for divider_offset in lane_divider_offsets:
             for a, b in (
-                ((-arm, 0.0), (-half_width, 0.0)),
-                ((half_width, 0.0), (arm, 0.0)),
-                ((0.0, arm), (0.0, half_width)),
-                ((0.0, -half_width), (0.0, -arm)),
+                ((-arm, divider_offset), (-half_width, divider_offset)),
+                ((half_width, divider_offset), (arm, divider_offset)),
+                ((-divider_offset, arm), (-divider_offset, half_width)),
+                ((-divider_offset, -half_width), (-divider_offset, -arm)),
             ):
                 spawn_marking_local_straight(
                     qlabs, obj, a, b, center_width, center_color, center_style

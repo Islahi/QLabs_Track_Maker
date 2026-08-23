@@ -156,8 +156,9 @@ class SceneryAutoFiller:
         density: str = "medium",
         roadside_reserve_m: float = 4.0,
         building_road_band_m: float = DEFAULT_BUILDING_ROAD_BAND_M,
+        target_rect_scene: QRectF | None = None,
     ) -> list[EnvironmentAssetItem]:
-        """Populate open space inside the editable canvas and return new items."""
+        """Populate open space in the canvas or a selected rectangular area."""
 
         style = style if style in STYLE_MIXES else "suburban"
         density = density if density in DENSITY_SETTINGS else "medium"
@@ -167,12 +168,15 @@ class SceneryAutoFiller:
             float(building_road_band_m),
         )
 
-        target_rect = self.scene.editable_area_rect().adjusted(
+        canvas_target = self.scene.editable_area_rect().adjusted(
             self.EDGE_MARGIN_M * PIXELS_PER_METER,
             self.EDGE_MARGIN_M * PIXELS_PER_METER,
             -self.EDGE_MARGIN_M * PIXELS_PER_METER,
             -self.EDGE_MARGIN_M * PIXELS_PER_METER,
         )
+        target_rect = canvas_target
+        if target_rect_scene is not None:
+            target_rect = canvas_target.intersected(target_rect_scene.normalized())
         if target_rect.isEmpty():
             return []
 
@@ -181,12 +185,16 @@ class SceneryAutoFiller:
 
         # Existing objects reserve only their real scene footprint. Trigger zones
         # and other non-physical logic items do not block scenery placement.
-        existing_paths = []
+        existing_entries = []
         for item in existing_items:
             item_type = getattr(item, "TYPE_NAME", "")
-            if item_type == "trigger_zone" or str(item_type).startswith("sketch_"):
+            if (
+                isinstance(item, ROAD_TYPES)
+                or item_type == "trigger_zone"
+                or str(item_type).startswith("sketch_")
+            ):
                 continue
-            existing_paths.append(self._item_scene_path(item))
+            existing_entries.append(self._path_entry(self._item_scene_path(item)))
 
         density_cfg = DENSITY_SETTINGS[density]
         area_m2 = (
@@ -200,10 +208,12 @@ class SceneryAutoFiller:
 
         # Keep candidate generation bounded on very large canvases (for
         # example Open Road). Aim for roughly 10 candidate positions per
-        # maximum generated item instead of creating millions of grid points.
+        # requested item instead of creating millions of grid points. Small
+        # brush rectangles previously inherited the full-canvas 150-item
+        # budget, which caused avoidable lag after several fills.
         base_step_m = float(density_cfg["grid_step_m"])
         adaptive_step_m = (
-            area_m2 / max(1.0, float(density_cfg["max_items"]) * 10.0)
+            area_m2 / max(1.0, float(target_count) * 10.0)
         ) ** 0.5
         step_px = max(base_step_m, adaptive_step_m) * PIXELS_PER_METER
         points = self._candidate_points(target_rect, step_px)
@@ -218,34 +228,38 @@ class SceneryAutoFiller:
             + int(target_rect.height())
         )
         rng.shuffle(points)
+        candidate_budget = min(1200, max(80, target_count * 10))
+        if len(points) > candidate_budget:
+            del points[candidate_budget:]
 
         classes, weights = STYLE_MIXES[style]
         created: list[EnvironmentAssetItem] = []
-        created_paths: list[QPainterPath] = []
+        created_entries: list[tuple[QRectF, QPainterPath]] = []
 
         # Precompute road exclusion paths at the three clearance levels. This is
         # both faster and more accurate than using a rotated road's bounding box.
+        road_paths = [self._item_scene_path(road) for road in roads]
         road_exclusions = {
             "building": [
-                self._inflated_path(
-                    self._item_scene_path(road),
+                self._path_entry(self._inflated_path(
+                    road_path,
                     roadside_reserve_m + self.BUILDING_EXTRA_ROAD_CLEARANCE_M,
-                )
-                for road in roads
+                ))
+                for road_path in road_paths
             ],
             "tree": [
-                self._inflated_path(
-                    self._item_scene_path(road),
+                self._path_entry(self._inflated_path(
+                    road_path,
                     roadside_reserve_m + self.TREE_EXTRA_ROAD_CLEARANCE_M,
-                )
-                for road in roads
+                ))
+                for road_path in road_paths
             ],
             "park": [
-                self._inflated_path(
-                    self._item_scene_path(road),
+                self._path_entry(self._inflated_path(
+                    road_path,
                     roadside_reserve_m + self.PARK_EXTRA_ROAD_CLEARANCE_M,
-                )
-                for road in roads
+                ))
+                for road_path in road_paths
             ],
         }
 
@@ -253,11 +267,11 @@ class SceneryAutoFiller:
         # exclusion above preserves the clear roadside reserve; this outer zone
         # prevents buildings from appearing in unrelated corners of the canvas.
         building_outer_zones = [
-            self._inflated_path(
-                self._item_scene_path(road),
+            self._path_entry(self._inflated_path(
+                road_path,
                 building_road_band_m,
-            )
-            for road in roads
+            ))
+            for road_path in road_paths
         ]
 
         for point in points:
@@ -265,7 +279,7 @@ class SceneryAutoFiller:
                 break
 
             attempted = set()
-            for _ in range(min(7, len(classes))):
+            for _ in range(min(5, len(classes))):
                 asset_class = rng.choices(classes, weights=weights, k=1)[0]
                 if asset_class in attempted:
                     continue
@@ -282,7 +296,10 @@ class SceneryAutoFiller:
                 if asset_class in BUILDING_TYPES:
                     if not building_outer_zones:
                         continue
-                    if not any(zone.contains(point) for zone in building_outer_zones):
+                    if not any(
+                        bounds.contains(point) and zone.contains(point)
+                        for bounds, zone in building_outer_zones
+                    ):
                         continue
 
                 candidate = asset_class()
@@ -297,21 +314,24 @@ class SceneryAutoFiller:
                     continue
 
                 road_group = self._road_group(candidate)
-                if any(candidate_path.intersects(path) for path in road_exclusions[road_group]):
+                if self._intersects_any(
+                    candidate_path,
+                    road_exclusions[road_group],
+                ):
                     continue
 
                 candidate_clear = self._inflated_path(
                     candidate_path,
                     self.EXISTING_CLEARANCE_M,
                 )
-                if any(candidate_clear.intersects(path) for path in existing_paths):
+                if self._intersects_any(candidate_clear, existing_entries):
                     continue
-                if any(candidate_clear.intersects(path) for path in created_paths):
+                if self._intersects_any(candidate_clear, created_entries):
                     continue
 
                 self.scene.addItem(candidate)
                 created.append(candidate)
-                created_paths.append(candidate_path)
+                created_entries.append(self._path_entry(candidate_path))
                 break
 
         return created
@@ -347,6 +367,21 @@ class SceneryAutoFiller:
             path = QPainterPath()
             path.addRect(item.mapRectToScene(item.boundingRect()).boundingRect())
             return path
+
+    @staticmethod
+    def _path_entry(path: QPainterPath) -> tuple[QRectF, QPainterPath]:
+        return path.boundingRect(), path
+
+    @staticmethod
+    def _intersects_any(
+        candidate: QPainterPath,
+        entries: list[tuple[QRectF, QPainterPath]],
+    ) -> bool:
+        candidate_bounds = candidate.boundingRect()
+        return any(
+            candidate_bounds.intersects(bounds) and candidate.intersects(path)
+            for bounds, path in entries
+        )
 
     @staticmethod
     def _inflated_path(path: QPainterPath, clearance_m: float) -> QPainterPath:

@@ -326,10 +326,11 @@ class StraightRoadItem(TrackItem):
         # ========================================================
         if self.show_center_line:
             painter.setPen(self.road_marking_pen("center", CENTER_LINE_WIDTH_PX))
-            painter.drawLine(
-                QPointF(-self.length_px / 2.0, 0),
-                QPointF(self.length_px / 2.0, 0),
-            )
+            for offset in self.lane_divider_offsets_px(self.width_px):
+                painter.drawLine(
+                    QPointF(-self.length_px / 2.0, offset),
+                    QPointF(self.length_px / 2.0, offset),
+                )
 
         # ========================================================
         # Optional lane-following guide line
@@ -685,7 +686,10 @@ class ContinuousRoadItem(TrackItem):
             pen = self.road_marking_pen("center", CENTER_LINE_WIDTH_PX)
             self._configure_path_pen(pen)
             painter.setPen(pen)
-            painter.drawPath(center_path)
+            for offset in self.lane_divider_offsets_px(road_width_px):
+                painter.drawPath(
+                    _path_from_points(_offset_polyline(points, offset))
+                )
 
         if self.guide_enabled:
             guide_offset = -self.resolved_guide_offset_m() * PIXELS_PER_METER
@@ -897,7 +901,10 @@ class Curve90RoadItem(TrackItem):
         # ========================================================
         if self.show_center_line:
             painter.setPen(self.road_marking_pen("center", CENTER_LINE_WIDTH_PX))
-            painter.drawPath(self.center_path())
+            for offset in self.lane_divider_offsets_px(self.width_px):
+                painter.drawPath(
+                    self._arc_path_for_radius(max(2.0, self.radius_px + offset))
+                )
 
         # ========================================================
         # Optional lane-following guide line
@@ -1103,10 +1110,11 @@ class RoadEndItem(TrackItem):
 
         if self.show_center_line:
             painter.setPen(self.road_marking_pen("center", CENTER_LINE_WIDTH_PX))
-            painter.drawLine(
-                QPointF(-self.length_px / 2.0, 0.0),
-                QPointF(self.length_px / 2.0 - 18.0, 0.0),
-            )
+            for offset in self.lane_divider_offsets_px(self.width_px):
+                painter.drawLine(
+                    QPointF(-self.length_px / 2.0, offset),
+                    QPointF(self.length_px / 2.0 - 18.0, offset),
+                )
 
         if self.guide_enabled:
             offset_px = self.resolved_guide_offset_m() * PIXELS_PER_METER
@@ -1241,10 +1249,17 @@ class TJunctionItem(TrackItem):
 
         if self.show_center_line:
             painter.setPen(self.road_marking_pen("center", CENTER_LINE_WIDTH_PX))
-            # Stop center markings at the central junction area.
-            painter.drawLine(QPointF(-self.arm_px, 0.0), QPointF(-half_w, 0.0))
-            painter.drawLine(QPointF(half_w, 0.0), QPointF(self.arm_px, 0.0))
-            painter.drawLine(QPointF(0.0, half_w), QPointF(0.0, self.arm_px))
+            # Stop each lane divider at the central junction area.
+            for offset in self.lane_divider_offsets_px(self.width_px):
+                painter.drawLine(
+                    QPointF(-self.arm_px, offset), QPointF(-half_w, offset)
+                )
+                painter.drawLine(
+                    QPointF(half_w, offset), QPointF(self.arm_px, offset)
+                )
+                painter.drawLine(
+                    QPointF(-offset, half_w), QPointF(-offset, self.arm_px)
+                )
 
         # Optional lane-following guide.  The horizontal guide continues
         # through the junction; the stem guide uses the corresponding lateral
@@ -1373,11 +1388,20 @@ class CrossIntersectionItem(TrackItem):
 
         if self.show_center_line:
             painter.setPen(self.road_marking_pen("center", CENTER_LINE_WIDTH_PX))
-            # Four separate arm markings; the intersection center stays clear.
-            painter.drawLine(QPointF(-self.arm_px, 0.0), QPointF(-half_w, 0.0))
-            painter.drawLine(QPointF(half_w, 0.0), QPointF(self.arm_px, 0.0))
-            painter.drawLine(QPointF(0.0, -self.arm_px), QPointF(0.0, -half_w))
-            painter.drawLine(QPointF(0.0, half_w), QPointF(0.0, self.arm_px))
+            # Separate approach markings keep the intersection center clear.
+            for offset in self.lane_divider_offsets_px(self.width_px):
+                painter.drawLine(
+                    QPointF(-self.arm_px, offset), QPointF(-half_w, offset)
+                )
+                painter.drawLine(
+                    QPointF(half_w, offset), QPointF(self.arm_px, offset)
+                )
+                painter.drawLine(
+                    QPointF(-offset, -self.arm_px), QPointF(-offset, -half_w)
+                )
+                painter.drawLine(
+                    QPointF(-offset, half_w), QPointF(-offset, self.arm_px)
+                )
 
         # Optional guide lines across both straight approaches of the
         # intersection.  They remain editable with the same left/center/right

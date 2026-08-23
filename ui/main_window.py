@@ -41,6 +41,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QScrollArea,
     QSizePolicy,
+    QSpinBox,
     QVBoxLayout,
     QWidget,
 )
@@ -300,6 +301,11 @@ class TrackEditorWindow(QMainWindow):
         self.sketch_tool_mode: str | None = None
         self.sketch_tool_points: list[QPointF] = []
         self.sketch_tool_preview: QPointF | None = None
+        self.sketch_trim_active = False
+        self.sketch_trim_preview: QPointF | None = None
+        self.scenery_brush_active = False
+        self.scenery_brush_start: QPointF | None = None
+        self.scenery_brush_preview: QPointF | None = None
 
         self.setWindowTitle(f"QLabs Track Editor v{self.VERSION}")
         self.resize(1500, 920)
@@ -464,6 +470,13 @@ class TrackEditorWindow(QMainWindow):
         )
         self.prop_length = self._make_spinbox(1.0, 1000.0, 1.0, 1, " m")
         self.prop_width = self._make_spinbox(0.05, 50.0, 0.05, 2, " m")
+        self.prop_lanes = QSpinBox()
+        self.prop_lanes.setRange(1, 12)
+        self.prop_lanes.setValue(2)
+        self.prop_lanes.setKeyboardTracking(False)
+        self.prop_lanes.setToolTip(
+            "Total traffic lanes. Changing this preserves the current per-lane width."
+        )
         self.prop_radius = self._make_spinbox(1.0, 1000.0, 1.0, 1, " m")
         self.prop_arm = self._make_spinbox(2.0, 1000.0, 1.0, 1, " m")
         self.prop_height = self._make_spinbox(0.05, 20.0, 0.05, 2, " m")
@@ -473,6 +486,7 @@ class TrackEditorWindow(QMainWindow):
         self.properties_form.addRow("Orientation", self.prop_rotation)
         self.properties_form.addRow("Length", self.prop_length)
         self.properties_form.addRow("Width", self.prop_width)
+        self.properties_form.addRow("Lanes", self.prop_lanes)
         self.properties_form.addRow("Radius", self.prop_radius)
         self.properties_form.addRow("Arm", self.prop_arm)
         self.properties_form.addRow("Height", self.prop_height)
@@ -482,6 +496,7 @@ class TrackEditorWindow(QMainWindow):
         self.prop_rotation.valueChanged.connect(self.apply_rotation_property)
         self.prop_length.valueChanged.connect(self.apply_length_property)
         self.prop_width.valueChanged.connect(self.apply_width_property)
+        self.prop_lanes.valueChanged.connect(self.apply_lane_count_property)
         self.prop_radius.valueChanged.connect(self.apply_radius_property)
         self.prop_arm.valueChanged.connect(self.apply_arm_property)
         self.prop_height.valueChanged.connect(self.apply_height_property)
@@ -1262,6 +1277,11 @@ class TrackEditorWindow(QMainWindow):
         self.scene.endpoint_snap_enabled = False
         try:
             for obj in objects_data:
+                if (
+                    obj.get("type") == ContinuousRoadItem.TYPE_NAME
+                    and bool(obj.get("auto_connector", False))
+                ):
+                    continue
                 item = create_track_item_from_dict(obj)
                 if item is not None:
                     self.scene.addItem(item)
@@ -1597,6 +1617,8 @@ class TrackEditorWindow(QMainWindow):
     def start_continuous_road_drawing(self):
         if self.continuous_road_drawing:
             return
+        self.cancel_sketch_trim(silent=True)
+        self.cancel_scenery_brush(silent=True)
         self.cancel_sketch_tool()
         self.finish_path_editing()
         self.scene.clearSelection()
@@ -1753,6 +1775,8 @@ class TrackEditorWindow(QMainWindow):
     def start_sketch_tool(self, mode: str):
         if mode not in {"line", "arc", "circle"}:
             return
+        self.cancel_sketch_trim(silent=True)
+        self.cancel_scenery_brush(silent=True)
         if self.continuous_road_drawing:
             self.finish_continuous_road_drawing()
         if self.sketch_tool_mode is not None:
@@ -1888,6 +1912,374 @@ class TrackEditorWindow(QMainWindow):
             QPointF(self.sketch_tool_points[-1])
             if self.sketch_tool_points
             else None
+        )
+        self.view.viewport().update()
+
+    # ------------------------------------------------------------
+    # CAD guide trimming
+    # ------------------------------------------------------------
+
+    def _set_sketch_trim_button_checked(self, checked: bool):
+        button = getattr(self.top_bar, "sketch_trim_button", None)
+        if button is None:
+            return
+        button.blockSignals(True)
+        button.setChecked(bool(checked))
+        button.blockSignals(False)
+
+    def toggle_sketch_trim(self, enabled: bool):
+        if enabled:
+            self.start_sketch_trim()
+        else:
+            self.cancel_sketch_trim()
+
+    def start_sketch_trim(self):
+        if self.sketch_trim_active:
+            return
+        self.cancel_scenery_brush(silent=True)
+        if self.continuous_road_drawing:
+            self.finish_continuous_road_drawing()
+        self.cancel_sketch_tool()
+        self.finish_path_editing()
+        self.scene.clearSelection()
+        self.sketch_trim_active = True
+        self.sketch_trim_preview = None
+        self._set_sketch_trim_button_checked(True)
+        self.view.setFocus()
+        self.view.setCursor(Qt.CursorShape.CrossCursor)
+        self.statusBar().showMessage(
+            "Trim: click the unwanted guide segment between crossings. "
+            "For a crossed circle, the removed section leaves an exact arc. "
+            "Right-click or Esc exits."
+        )
+        self.view.viewport().update()
+
+    def cancel_sketch_trim(self, *, silent: bool = False):
+        was_active = self.sketch_trim_active
+        self.sketch_trim_active = False
+        self.sketch_trim_preview = None
+        self._set_sketch_trim_button_checked(False)
+        if was_active and hasattr(self, "view"):
+            self.view.unsetCursor()
+        if was_active and not silent:
+            self.statusBar().showMessage("Trim tool closed.", 2000)
+        if hasattr(self, "view"):
+            self.view.viewport().update()
+
+    @staticmethod
+    def _polyline_metrics(points: list[QPointF]) -> tuple[list[float], float]:
+        cumulative = [0.0]
+        for start, end in zip(points, points[1:]):
+            cumulative.append(
+                cumulative[-1]
+                + math.hypot(end.x() - start.x(), end.y() - start.y())
+            )
+        return cumulative, cumulative[-1] if cumulative else 0.0
+
+    @staticmethod
+    def _polyline_point_at(
+        points: list[QPointF],
+        cumulative: list[float],
+        distance: float,
+    ) -> QPointF:
+        if not points:
+            return QPointF()
+        total = cumulative[-1]
+        distance = max(0.0, min(total, float(distance)))
+        for index in range(len(points) - 1):
+            start_distance = cumulative[index]
+            end_distance = cumulative[index + 1]
+            if distance <= end_distance or index == len(points) - 2:
+                segment_length = end_distance - start_distance
+                ratio = 0.0 if segment_length <= 1e-9 else (
+                    (distance - start_distance) / segment_length
+                )
+                start = points[index]
+                end = points[index + 1]
+                return QPointF(
+                    start.x() + (end.x() - start.x()) * ratio,
+                    start.y() + (end.y() - start.y()) * ratio,
+                )
+        return QPointF(points[-1])
+
+    @classmethod
+    def _polyline_slice(
+        cls,
+        points: list[QPointF],
+        cumulative: list[float],
+        start_distance: float,
+        end_distance: float,
+    ) -> list[QPointF]:
+        if end_distance <= start_distance or len(points) < 2:
+            return []
+        result = [cls._polyline_point_at(points, cumulative, start_distance)]
+        for index, distance in enumerate(cumulative[1:-1], start=1):
+            if start_distance < distance < end_distance:
+                result.append(QPointF(points[index]))
+        result.append(cls._polyline_point_at(points, cumulative, end_distance))
+        return result
+
+    @staticmethod
+    def _nearest_on_polyline(
+        scene_pos: QPointF,
+        points: list[QPointF],
+        cumulative: list[float],
+    ) -> tuple[QPointF, float, float]:
+        best_point = QPointF(points[0])
+        best_distance = float("inf")
+        best_along = 0.0
+        for index, (start, end) in enumerate(zip(points, points[1:])):
+            dx = end.x() - start.x()
+            dy = end.y() - start.y()
+            length_squared = dx * dx + dy * dy
+            ratio = 0.0
+            if length_squared > 1e-12:
+                ratio = (
+                    (scene_pos.x() - start.x()) * dx
+                    + (scene_pos.y() - start.y()) * dy
+                ) / length_squared
+                ratio = max(0.0, min(1.0, ratio))
+            candidate = QPointF(start.x() + dx * ratio, start.y() + dy * ratio)
+            distance = math.hypot(
+                candidate.x() - scene_pos.x(),
+                candidate.y() - scene_pos.y(),
+            )
+            if distance < best_distance:
+                best_point = candidate
+                best_distance = distance
+                segment_length = cumulative[index + 1] - cumulative[index]
+                best_along = cumulative[index] + segment_length * ratio
+        return best_point, best_distance, best_along
+
+    def _closest_sketch_guide(self, scene_pos: QPointF):
+        best = None
+        for guide in self.scene.track_items():
+            if not isinstance(guide, SketchGuideItem):
+                continue
+            points = list(guide.sampled_scene_points())
+            if len(points) < 2:
+                continue
+            cumulative, total = self._polyline_metrics(points)
+            if total <= 1e-6:
+                continue
+            point, distance, along = self._nearest_on_polyline(
+                scene_pos, points, cumulative
+            )
+            if best is None or distance < best[1]:
+                best = (guide, distance, point, along, points, cumulative, total)
+        return best
+
+    def update_sketch_trim_preview(self, scene_pos: QPointF):
+        if not self.sketch_trim_active:
+            return
+        closest = self._closest_sketch_guide(scene_pos)
+        tolerance = max(
+            0.45 * PIXELS_PER_METER,
+            12.0 / max(0.10, abs(self.view.transform().m11())),
+        )
+        self.sketch_trim_preview = (
+            QPointF(closest[2])
+            if closest is not None and closest[1] <= tolerance
+            else QPointF(scene_pos)
+        )
+        self.view.viewport().update()
+
+    def _guide_trim_distances(
+        self,
+        guide: SketchGuideItem,
+        points: list[QPointF],
+        cumulative: list[float],
+        total: float,
+    ) -> list[float]:
+        cuts = []
+        for node in self.scene.sketch_connection_nodes():
+            for member in node["members"]:
+                if member["guide"] is not guide:
+                    continue
+                segment = int(member["segment"])
+                if not (0 <= segment < len(points) - 1):
+                    continue
+                ratio = max(0.0, min(1.0, float(member["ratio"])))
+                segment_length = cumulative[segment + 1] - cumulative[segment]
+                cuts.append(cumulative[segment] + segment_length * ratio)
+
+        # Roads also act as valid cutting boundaries, so an overlong guide can
+        # be trimmed exactly where it crosses an existing road centerline.
+        for road in self.scene.track_items():
+            for centerline in self.scene.road_centerline_polylines(road):
+                for guide_segment, (start, end) in enumerate(zip(points, points[1:])):
+                    segment_length = cumulative[guide_segment + 1] - cumulative[guide_segment]
+                    for road_start, road_end in zip(centerline, centerline[1:]):
+                        crossing = self.scene._segment_intersection(
+                            start, end, road_start, road_end
+                        )
+                        if crossing is None:
+                            continue
+                        _, guide_ratio, _ = crossing
+                        cuts.append(
+                            cumulative[guide_segment] + segment_length * guide_ratio
+                        )
+
+        tolerance = 0.08 * PIXELS_PER_METER
+        normalized = []
+        for distance in sorted(cuts):
+            if isinstance(guide, SketchCircleItem):
+                distance %= total
+            if not normalized or abs(distance - normalized[-1]) > tolerance:
+                normalized.append(distance)
+        if (
+            isinstance(guide, SketchCircleItem)
+            and len(normalized) > 1
+            and total - normalized[-1] + normalized[0] <= tolerance
+        ):
+            normalized.pop()
+        return normalized
+
+    def _create_trimmed_guide(
+        self,
+        source: SketchGuideItem,
+        scene_points: list[QPointF],
+    ) -> SketchGuideItem | None:
+        cumulative, total = self._polyline_metrics(scene_points)
+        if total < 0.25 * PIXELS_PER_METER:
+            return None
+        start = scene_points[0]
+        if isinstance(source, SketchLineItem):
+            guide = SketchLineItem(
+                points_m=self._guide_points_m(
+                    [start, scene_points[-1]], start
+                )
+            )
+        else:
+            middle = self._polyline_point_at(
+                scene_points, cumulative, total / 2.0
+            )
+            guide = SketchArcItem(
+                points_m=self._guide_points_m(
+                    [start, middle, scene_points[-1]], start
+                )
+            )
+        guide.setPos(start)
+        return guide
+
+    def trim_sketch_guide_at(self, scene_pos: QPointF):
+        if not self.sketch_trim_active:
+            return
+        closest = self._closest_sketch_guide(scene_pos)
+        tolerance = max(
+            0.45 * PIXELS_PER_METER,
+            12.0 / max(0.10, abs(self.view.transform().m11())),
+        )
+        if closest is None or closest[1] > tolerance:
+            self.statusBar().showMessage(
+                "No guide under the trim cursor.", 2500
+            )
+            return
+
+        guide, _, _, clicked_along, points, cumulative, total = closest
+        cuts = self._guide_trim_distances(guide, points, cumulative, total)
+        pieces: list[list[QPointF]] = []
+
+        if isinstance(guide, SketchCircleItem):
+            if len(cuts) < 2:
+                self.statusBar().showMessage(
+                    "A circle needs at least two guide/road crossings before it can be trimmed.",
+                    4500,
+                )
+                return
+            remove_start = cuts[-1]
+            remove_end = cuts[0] + total
+            for index, start_distance in enumerate(cuts):
+                end_distance = (
+                    cuts[index + 1] if index + 1 < len(cuts) else cuts[0] + total
+                )
+                candidate_click = clicked_along
+                if candidate_click < start_distance:
+                    candidate_click += total
+                if start_distance <= candidate_click <= end_distance:
+                    remove_start = start_distance
+                    remove_end = end_distance
+                    break
+
+            keep_start = remove_end % total
+            keep_length = total - (remove_end - remove_start)
+            if keep_length < 0.25 * PIXELS_PER_METER:
+                self.statusBar().showMessage(
+                    "That trim would remove the whole circle.", 3000
+                )
+                return
+            keep_end = keep_start + keep_length
+            if keep_end <= total + 1e-6:
+                first = self._polyline_slice(
+                    points, cumulative, keep_start, min(total, keep_end)
+                )
+            else:
+                first = self._polyline_slice(points, cumulative, keep_start, total)
+                remainder = keep_end - total
+                second = self._polyline_slice(points, cumulative, 0.0, remainder)
+                if first and second:
+                    first.extend(second[1:])
+                elif second:
+                    first = second
+            pieces = [first]
+        else:
+            interior_cuts = [
+                distance
+                for distance in cuts
+                if 1e-6 < distance < total - 1e-6
+            ]
+            if not interior_cuts:
+                self.statusBar().showMessage(
+                    "This guide has no interior guide/road crossing to trim against.",
+                    4500,
+                )
+                return
+            boundaries = [0.0] + interior_cuts + [total]
+            remove_index = len(boundaries) - 2
+            for index, (start_distance, end_distance) in enumerate(
+                zip(boundaries, boundaries[1:])
+            ):
+                if start_distance <= clicked_along <= end_distance:
+                    remove_index = index
+                    break
+            remove_start = boundaries[remove_index]
+            remove_end = boundaries[remove_index + 1]
+            if remove_start > 1e-6:
+                pieces.append(
+                    self._polyline_slice(points, cumulative, 0.0, remove_start)
+                )
+            if remove_end < total - 1e-6:
+                pieces.append(
+                    self._polyline_slice(points, cumulative, remove_end, total)
+                )
+
+        replacements = [
+            replacement
+            for replacement in (
+                self._create_trimmed_guide(guide, piece) for piece in pieces
+            )
+            if replacement is not None
+        ]
+        if not replacements:
+            self.statusBar().showMessage(
+                "That trim would leave no usable guide segment.", 3000
+            )
+            return
+
+        self._begin_undo_transaction("Trim road guide")
+        self.scene.clearSelection()
+        self.scene.removeItem(guide)
+        for replacement in replacements:
+            self.scene.addItem(replacement)
+            replacement.setSelected(True)
+            self.register_sketch_circle_ports(replacement)
+        self.scene.update()
+        self.update_selection_info()
+        self._commit_undo_transaction()
+        self.statusBar().showMessage(
+            f"Trimmed {guide.DISPLAY_NAME}; kept {len(replacements)} segment"
+            f"{'s' if len(replacements) != 1 else ''}. Trim remains active.",
+            4500,
         )
         self.view.viewport().update()
 
@@ -2225,43 +2617,12 @@ class TrackEditorWindow(QMainWindow):
                 width_m=width_m,
                 smooth=False,
             )
-            road.setPos(anchor)
+            # The CAD geometry is already resolved. Do not let the normal
+            # movable-item grid/endpoint snapping shift separate generated
+            # paths away from one another when they enter the scene.
+            road.set_pos_exact(anchor)
             self.scene.addItem(road)
             created_roads.append(road)
-
-        connector_points = []
-        for node in connection_nodes:
-            members = [
-                member for member in node["members"]
-                if member["guide"] in guides
-            ]
-            if len(members) < 2:
-                continue
-            has_interior_connection = any(
-                1e-6 < float(member["ratio"]) < 1.0 - 1e-6
-                for member in members
-            )
-            has_closed_guide = any(
-                isinstance(member["guide"], SketchCircleItem)
-                for member in members
-            )
-            if len(members) != 2 or has_interior_connection or has_closed_guide:
-                connector_points.append(QPointF(node["pos"]))
-
-        for point in connector_points:
-            half = width_m / 2.0
-            connector = ContinuousRoadItem(
-                points_m=[(-half, 0.0), (half, 0.0)],
-                width_m=width_m,
-                smooth=False,
-                auto_connector=True,
-            )
-            connector.show_edge_a = False
-            connector.show_center_line = False
-            connector.show_edge_b = False
-            connector.show_end_bar = False
-            connector.setPos(point)
-            self.scene.addItem(connector)
 
         self.scene.clearSelection()
         for guide in guides:
@@ -2274,10 +2635,8 @@ class TrackEditorWindow(QMainWindow):
         self._commit_undo_transaction()
         self.statusBar().showMessage(
             f"Generated {len(created_roads)} continuous road"
-            f"{'s' if len(created_roads) != 1 else ''} with "
-            f"{len(connector_points)} seamless junction patch"
-            f"{'es' if len(connector_points) != 1 else ''}; "
-            f"removed {len(guides)} guide{'s' if len(guides) != 1 else ''}.",
+            f"{'s' if len(created_roads) != 1 else ''}; removed "
+            f"{len(guides)} guide{'s' if len(guides) != 1 else ''}.",
             5000,
         )
 
@@ -4215,6 +4574,7 @@ class TrackEditorWindow(QMainWindow):
             self.prop_rotation,
             self.prop_length,
             self.prop_width,
+            self.prop_lanes,
             self.prop_radius,
             self.prop_arm,
             self.prop_height,
@@ -4231,6 +4591,7 @@ class TrackEditorWindow(QMainWindow):
             # Hide type-specific fields by default.
             self._set_property_row_visible(self.prop_length, False)
             self._set_property_row_visible(self.prop_width, False)
+            self._set_property_row_visible(self.prop_lanes, False)
             self._set_property_row_visible(self.prop_radius, False)
             self._set_property_row_visible(self.prop_arm, False)
             self._set_property_row_visible(self.prop_height, False)
@@ -4277,6 +4638,13 @@ class TrackEditorWindow(QMainWindow):
                 self._set_property_row_visible(self.prop_width, True)
                 self.prop_arm.setValue(item.arm_length_m)
                 self.prop_width.setValue(item.width_m)
+
+            if (
+                item.supports_road_markings()
+                and not bool(getattr(item, "auto_connector", False))
+            ):
+                self._set_property_row_visible(self.prop_lanes, True)
+                self.prop_lanes.setValue(int(getattr(item, "lane_count", 2)))
 
             self.prop_effective.setText(self._effective_text(item))
         finally:
@@ -4330,6 +4698,156 @@ class TrackEditorWindow(QMainWindow):
         self.scene.update()
         self.update_selection_info()
         self._commit_undo_transaction()
+
+    def _set_scenery_brush_button_checked(self, checked: bool):
+        button = getattr(self.top_bar, "area_fill_button", None)
+        if button is None:
+            return
+        button.blockSignals(True)
+        button.setChecked(bool(checked))
+        button.blockSignals(False)
+
+    def toggle_scenery_brush(self, enabled: bool):
+        if enabled:
+            self.start_scenery_brush()
+        else:
+            self.cancel_scenery_brush()
+
+    def start_scenery_brush(self):
+        if self.scenery_brush_active:
+            return
+        self.cancel_sketch_trim(silent=True)
+        if self.continuous_road_drawing:
+            self.finish_continuous_road_drawing()
+        self.cancel_sketch_tool()
+        self.finish_path_editing()
+        self.scene.clearSelection()
+        self.scenery_brush_active = True
+        self.scenery_brush_start = None
+        self.scenery_brush_preview = None
+        self._set_scenery_brush_button_checked(True)
+        self.view.setFocus()
+        self.view.setCursor(Qt.CursorShape.CrossCursor)
+        self.statusBar().showMessage(
+            "Environment brush: drag a rectangle to generate the selected scenery style. "
+            "The brush stays active; right-click or Esc exits."
+        )
+        self.view.viewport().update()
+
+    def cancel_scenery_brush(self, *, silent: bool = False):
+        was_active = self.scenery_brush_active
+        old_rect = self._scenery_brush_selection_rect()
+        self.scenery_brush_active = False
+        self.scenery_brush_start = None
+        self.scenery_brush_preview = None
+        self._set_scenery_brush_button_checked(False)
+        if was_active and hasattr(self, "view"):
+            self.view.unsetCursor()
+        if was_active and not silent:
+            self.statusBar().showMessage("Environment brush closed.", 2000)
+        if hasattr(self, "view"):
+            self._update_scenery_brush_overlay(old_rect)
+
+    def _scenery_brush_selection_rect(self) -> QRectF | None:
+        if self.scenery_brush_start is None or self.scenery_brush_preview is None:
+            return None
+        return QRectF(
+            self.scenery_brush_start,
+            self.scenery_brush_preview,
+        ).normalized()
+
+    def _update_scenery_brush_overlay(
+        self,
+        old_rect: QRectF | None = None,
+    ):
+        """Repaint only the old/new brush overlay instead of the whole canvas."""
+        new_rect = self._scenery_brush_selection_rect()
+        dirty_rect = None
+        for candidate in (old_rect, new_rect):
+            if candidate is None:
+                continue
+            dirty_rect = (
+                QRectF(candidate)
+                if dirty_rect is None
+                else dirty_rect.united(candidate)
+            )
+        if dirty_rect is None:
+            return
+        viewport_rect = self.view.mapFromScene(dirty_rect).boundingRect()
+        self.view.viewport().update(viewport_rect.adjusted(-5, -5, 5, 5))
+
+    def _clamp_to_editable_area(self, scene_pos: QPointF) -> QPointF:
+        area = self.scene.editable_area_rect()
+        return QPointF(
+            max(area.left(), min(area.right(), scene_pos.x())),
+            max(area.top(), min(area.bottom(), scene_pos.y())),
+        )
+
+    def begin_scenery_brush(self, scene_pos: QPointF):
+        if not self.scenery_brush_active:
+            return
+        point = self._clamp_to_editable_area(scene_pos)
+        self.scenery_brush_start = QPointF(point)
+        self.scenery_brush_preview = QPointF(point)
+        self._update_scenery_brush_overlay()
+
+    def update_scenery_brush_preview(self, scene_pos: QPointF):
+        if not self.scenery_brush_active or self.scenery_brush_start is None:
+            return
+        old_rect = self._scenery_brush_selection_rect()
+        self.scenery_brush_preview = self._clamp_to_editable_area(scene_pos)
+        self._update_scenery_brush_overlay(old_rect)
+
+    def finish_scenery_brush(self, scene_pos: QPointF):
+        if not self.scenery_brush_active or self.scenery_brush_start is None:
+            return
+        old_rect = self._scenery_brush_selection_rect()
+        end = self._clamp_to_editable_area(scene_pos)
+        target_rect = QRectF(self.scenery_brush_start, end).normalized()
+        self.scenery_brush_start = None
+        self.scenery_brush_preview = None
+        self._update_scenery_brush_overlay(old_rect)
+
+        if (
+            target_rect.width() < PIXELS_PER_METER
+            or target_rect.height() < PIXELS_PER_METER
+        ):
+            self.statusBar().showMessage(
+                "Brush area is too small; drag at least 1 m in both directions.",
+                3500,
+            )
+            self.view.viewport().update()
+            return
+
+        self.scenery_fill_settings_changed()
+        self._begin_undo_transaction("Brush-fill scenery")
+        created = self.scenery_filler.fill_editable_open_space(
+            style=self.scenery_fill_style,
+            density=self.scenery_fill_density,
+            roadside_reserve_m=self.roadside_reserve_m,
+            building_road_band_m=self.building_road_band_m,
+            target_rect_scene=target_rect,
+        )
+        self.scene.clearSelection()
+        self.scene.update()
+        self.update_selection_info()
+        self._commit_undo_transaction()
+        if created:
+            width_m = target_rect.width() / PIXELS_PER_METER
+            height_m = target_rect.height() / PIXELS_PER_METER
+            self.statusBar().showMessage(
+                f"Generated {len(created)} scenery objects in the "
+                f"{width_m:.1f} m × {height_m:.1f} m brush area. "
+                "Drag another area or right-click to exit.",
+                6500,
+            )
+        else:
+            self.statusBar().showMessage(
+                "No suitable space was found in that brush area. Try a larger area, "
+                "Park style, or a smaller roadside reserve.",
+                6500,
+            )
+        self.view.viewport().update()
 
     def insert_selected_continuous_road_node(self):
         road = self._single_selected_item()
@@ -4818,6 +5336,8 @@ class TrackEditorWindow(QMainWindow):
         item = self._single_selected_item()
         if not isinstance(item, ExperimentActorItem):
             return
+        self.cancel_sketch_trim(silent=True)
+        self.cancel_scenery_brush(silent=True)
         if self.continuous_road_drawing:
             self.finish_continuous_road_drawing()
         self.cancel_sketch_tool()
@@ -5392,6 +5912,53 @@ class TrackEditorWindow(QMainWindow):
             minimum_radius = item.width_m / 2.0 + 0.5
             if item.radius_m < minimum_radius:
                 item.radius_m = minimum_radius
+        elif isinstance(item, (TJunctionItem, CrossIntersectionItem)):
+            item.arm_length_m = max(item.arm_length_m, item.width_m)
+
+        self._geometry_property_changed(item)
+        self._commit_undo_transaction()
+
+    def apply_lane_count_property(self, value: int):
+        if self._property_refreshing:
+            return
+        item = self._single_selected_item()
+        if (
+            item is None
+            or not item.supports_road_markings()
+            or bool(getattr(item, "auto_connector", False))
+            or not hasattr(item, "width_m")
+        ):
+            return
+
+        old_count = max(1, int(getattr(item, "lane_count", 2)))
+        new_count = max(1, min(12, int(value)))
+        if new_count == old_count:
+            return
+
+        # Lane count is the total across the whole road. Preserve the existing
+        # lane width so adding lanes expands the carriageway predictably.
+        lane_width_m = max(0.5, float(item.width_m) / float(old_count))
+        self._begin_undo_transaction("Change road lane count")
+        item.prepareGeometryChange()
+        item.lane_count = new_count
+        item.width_m = max(1.0, lane_width_m * new_count)
+
+        if isinstance(item, (Curve90RoadItem, Curve45RoadItem)):
+            item.radius_m = max(item.radius_m, item.width_m / 2.0 + 0.5)
+        elif isinstance(item, (TJunctionItem, CrossIntersectionItem)):
+            item.arm_length_m = max(item.arm_length_m, item.width_m)
+
+        self.prop_width.blockSignals(True)
+        self.prop_width.setValue(item.width_m)
+        self.prop_width.blockSignals(False)
+        if isinstance(item, (Curve90RoadItem, Curve45RoadItem)):
+            self.prop_radius.blockSignals(True)
+            self.prop_radius.setValue(item.radius_m)
+            self.prop_radius.blockSignals(False)
+        elif isinstance(item, (TJunctionItem, CrossIntersectionItem)):
+            self.prop_arm.blockSignals(True)
+            self.prop_arm.setValue(item.arm_length_m)
+            self.prop_arm.blockSignals(False)
 
         self._geometry_property_changed(item)
         self._commit_undo_transaction()
@@ -5497,6 +6064,8 @@ class TrackEditorWindow(QMainWindow):
     # ------------------------------------------------------------
 
     def export_qlabs_setup(self):
+        self.cancel_sketch_trim(silent=True)
+        self.cancel_scenery_brush(silent=True)
         self.cancel_sketch_tool()
         if self.continuous_road_drawing:
             self.finish_continuous_road_drawing()
@@ -5573,7 +6142,11 @@ class TrackEditorWindow(QMainWindow):
     # ------------------------------------------------------------
 
     def track_data(self) -> dict:
-        objects = [item.to_dict() for item in self.scene.track_items()]
+        objects = [
+            item.to_dict()
+            for item in self.scene.track_items()
+            if not bool(getattr(item, "auto_connector", False))
+        ]
 
         return {
             "format": "qlabs_track_editor",
@@ -5612,6 +6185,8 @@ class TrackEditorWindow(QMainWindow):
         }
 
     def new_track(self):
+        self.cancel_sketch_trim(silent=True)
+        self.cancel_scenery_brush(silent=True)
         self.cancel_sketch_tool()
         self.cancel_continuous_road_drawing()
         self.scene.clear()
@@ -5629,6 +6204,8 @@ class TrackEditorWindow(QMainWindow):
         self.update_selection_info()
 
     def save_track(self, save_as: bool = False):
+        self.cancel_sketch_trim(silent=True)
+        self.cancel_scenery_brush(silent=True)
         self.cancel_sketch_tool()
         if self.continuous_road_drawing:
             self.finish_continuous_road_drawing()
@@ -5667,6 +6244,8 @@ class TrackEditorWindow(QMainWindow):
         if not file_name:
             return
 
+        self.cancel_sketch_trim(silent=True)
+        self.cancel_scenery_brush(silent=True)
         self.cancel_sketch_tool()
         self.cancel_continuous_road_drawing()
 
@@ -5706,6 +6285,11 @@ class TrackEditorWindow(QMainWindow):
 
         try:
             for obj in objects_data:
+                if (
+                    obj.get("type") == ContinuousRoadItem.TYPE_NAME
+                    and bool(obj.get("auto_connector", False))
+                ):
+                    continue
                 item = create_track_item_from_dict(obj)
                 if item is not None:
                     self.scene.addItem(item)
