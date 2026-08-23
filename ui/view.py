@@ -16,6 +16,7 @@ from config import (
 )
 from core.geometry import scene_to_world, world_to_scene
 from items.experiment import ExperimentActorItem, SecondaryQCarItem
+from items.sketch import sample_three_point_arc
 from ui.scene import TrackScene
 
 class TrackView(QGraphicsView):
@@ -192,6 +193,42 @@ class TrackView(QGraphicsView):
     def drawForeground(self, painter: QPainter, rect: QRectF):
         super().drawForeground(painter, rect)
 
+        # Real guide intersections are shown as green connection nodes. The
+        # road generator also inserts these locations into both road paths.
+        sketch_nodes = self.scene().sketch_connection_nodes()
+        if sketch_nodes:
+            node_radius = 5.0 / max(0.15, self.transform().m11())
+            painter.setPen(QPen(QColor(245, 250, 255), 1.2))
+            painter.setBrush(QColor(75, 225, 135))
+            for node in sketch_nodes:
+                painter.drawEllipse(node["pos"], node_radius, node_radius)
+
+        sketch_mode = getattr(self.editor_window, "sketch_tool_mode", None)
+        if sketch_mode is not None:
+            points = list(getattr(self.editor_window, "sketch_tool_points", []))
+            preview = getattr(self.editor_window, "sketch_tool_preview", None)
+            preview_pen = QPen(QColor(45, 205, 235, 235), 2.5, Qt.PenStyle.DashLine)
+            preview_pen.setCosmetic(True)
+            painter.setPen(preview_pen)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            if sketch_mode == "circle" and points and preview is not None:
+                radius = math.hypot(preview.x() - points[0].x(), preview.y() - points[0].y())
+                painter.drawEllipse(points[0], radius, radius)
+            elif sketch_mode == "arc" and len(points) == 2 and preview is not None:
+                arc_points = sample_three_point_arc(points[0], points[1], preview)
+                for start, end in zip(arc_points, arc_points[1:]):
+                    painter.drawLine(start, end)
+            else:
+                preview_points = points + ([preview] if preview is not None else [])
+                for start, end in zip(preview_points, preview_points[1:]):
+                    painter.drawLine(start, end)
+
+            radius = 6.0 / max(0.15, self.transform().m11())
+            painter.setPen(QPen(QColor(245, 250, 255), 1.3))
+            painter.setBrush(QColor(255, 185, 65))
+            for point in points:
+                painter.drawEllipse(point, radius, radius)
+
         if getattr(self.editor_window, "continuous_road_drawing", False):
             points = list(
                 getattr(self.editor_window, "continuous_road_points", [])
@@ -253,6 +290,18 @@ class TrackView(QGraphicsView):
         event.accept()
 
     def mousePressEvent(self, event):
+        if getattr(self.editor_window, "sketch_tool_mode", None) is not None:
+            if event.button() == Qt.MouseButton.LeftButton:
+                self.editor_window.add_sketch_tool_point(
+                    self.mapToScene(event.position().toPoint())
+                )
+                event.accept()
+                return
+            if event.button() == Qt.MouseButton.RightButton:
+                self.editor_window.cancel_sketch_tool()
+                event.accept()
+                return
+
         if getattr(self.editor_window, "continuous_road_drawing", False):
             if event.button() == Qt.MouseButton.LeftButton:
                 self.editor_window.add_continuous_road_node(
@@ -287,7 +336,9 @@ class TrackView(QGraphicsView):
         if event.button() == Qt.MouseButton.LeftButton:
             # Snapshot before Qt starts a possible drag. A selection-only click
             # produces identical before/after project data and is discarded.
-            self.editor_window.begin_canvas_undo("Move item")
+            clicked_item = self.itemAt(event.position().toPoint())
+            if not getattr(clicked_item, "is_control_handle", False):
+                self.editor_window.begin_canvas_undo("Move item")
 
         super().mousePressEvent(event)
 
@@ -308,6 +359,10 @@ class TrackView(QGraphicsView):
         scene_pos = self.mapToScene(event.position().toPoint())
         x_m, y_m = scene_to_world(scene_pos)
         self.editor_window.update_cursor_label(x_m, y_m)
+        if getattr(self.editor_window, "sketch_tool_mode", None) is not None:
+            self.editor_window.update_sketch_tool_preview(scene_pos)
+            event.accept()
+            return
         if getattr(self.editor_window, "continuous_road_drawing", False):
             self.editor_window.update_continuous_road_preview(scene_pos)
             event.accept()
@@ -329,6 +384,15 @@ class TrackView(QGraphicsView):
             self.editor_window.end_canvas_undo()
 
     def keyPressEvent(self, event):
+        if getattr(self.editor_window, "sketch_tool_mode", None) is not None:
+            if event.key() == Qt.Key.Key_Escape:
+                self.editor_window.cancel_sketch_tool()
+                event.accept()
+                return
+            if event.key() == Qt.Key.Key_Backspace:
+                self.editor_window.remove_last_sketch_tool_point()
+                event.accept()
+                return
         if getattr(self.editor_window, "continuous_road_drawing", False):
             if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
                 self.editor_window.finish_continuous_road_drawing()

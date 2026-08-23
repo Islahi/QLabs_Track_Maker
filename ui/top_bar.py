@@ -14,6 +14,8 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QLayout,
+    QScrollArea,
     QSizePolicy,
     QTabWidget,
     QToolButton,
@@ -113,10 +115,36 @@ class TopControlBar(QWidget):
         self.platform_row.setContentsMargins(7, 6, 7, 6)
         self.platform_row.setSpacing(6)
 
-        self.tool_tabs.addTab(setup_page, "Setup")
-        self.tool_tabs.addTab(build_page, "Build")
-        self.tool_tabs.addTab(scenery_page, "Scenery")
-        self.tool_tabs.addTab(cover_page, "Cover")
+        def _scrollable_page(page: QWidget, layout: QHBoxLayout) -> QScrollArea:
+            layout.setSizeConstraint(QLayout.SizeConstraint.SetMinimumSize)
+            page.setSizePolicy(
+                QSizePolicy.Policy.Minimum,
+                QSizePolicy.Policy.Fixed,
+            )
+            scroll = QScrollArea()
+            scroll.setFrameShape(QFrame.Shape.NoFrame)
+            scroll.setWidgetResizable(True)
+            scroll.setHorizontalScrollBarPolicy(
+                Qt.ScrollBarPolicy.ScrollBarAsNeeded
+            )
+            scroll.setVerticalScrollBarPolicy(
+                Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+            )
+            scroll.setWidget(page)
+            return scroll
+
+        self.tool_tabs.addTab(
+            _scrollable_page(setup_page, self.settings_row), "Setup"
+        )
+        self.tool_tabs.addTab(
+            _scrollable_page(build_page, self.tools_row), "Build"
+        )
+        self.tool_tabs.addTab(
+            _scrollable_page(scenery_page, self.gallery_row), "Scenery"
+        )
+        self.tool_tabs.addTab(
+            _scrollable_page(cover_page, self.platform_row), "Cover"
+        )
         root.addWidget(self.tool_tabs)
 
         self._build_settings_row()
@@ -411,6 +439,39 @@ class TopControlBar(QWidget):
 
     def _build_tools_row(self):
         row = self.tools_row
+
+        row.addWidget(self._category("SKETCH"))
+        self.sketch_line_button = self._icon_button(
+            "sketch_line",
+            "CAD road guide: Line (two clicks)",
+            lambda checked: self.window.toggle_sketch_tool("line", checked),
+            checkable=True,
+        )
+        self.sketch_arc_button = self._icon_button(
+            "sketch_arc",
+            "CAD road guide: 3-point Arc (start, arc point, end)",
+            lambda checked: self.window.toggle_sketch_tool("arc", checked),
+            checkable=True,
+        )
+        self.sketch_circle_button = self._icon_button(
+            "sketch_circle",
+            "CAD road guide: Circle (center, radius)",
+            lambda checked: self.window.toggle_sketch_tool("circle", checked),
+            checkable=True,
+        )
+        self.sketch_generate_button = self._icon_button(
+            "generate_road",
+            "Generate seamless roads and remove selected guides (all guides if none selected)",
+            self.window.generate_roads_from_sketch,
+        )
+        for button in (
+            self.sketch_line_button,
+            self.sketch_arc_button,
+            self.sketch_circle_button,
+            self.sketch_generate_button,
+        ):
+            row.addWidget(button)
+        row.addWidget(self._separator())
 
         row.addWidget(self._category("ROAD"))
         self.continuous_road_button = self._icon_button(

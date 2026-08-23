@@ -183,7 +183,8 @@ class SceneryAutoFiller:
         # and other non-physical logic items do not block scenery placement.
         existing_paths = []
         for item in existing_items:
-            if getattr(item, "TYPE_NAME", "") == "trigger_zone":
+            item_type = getattr(item, "TYPE_NAME", "")
+            if item_type == "trigger_zone" or str(item_type).startswith("sketch_"):
                 continue
             existing_paths.append(self._item_scene_path(item))
 

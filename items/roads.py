@@ -4,7 +4,7 @@ import math
 
 from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QPainter, QPainterPath, QPainterPathStroker, QPen
-from PySide6.QtWidgets import QGraphicsEllipseItem, QGraphicsItem
+from PySide6.QtWidgets import QGraphicsEllipseItem, QGraphicsItem, QMenu
 
 from config import (
     PIXELS_PER_METER,
@@ -41,12 +41,20 @@ def _path_from_points(points: list[QPointF]) -> QPainterPath:
 
 
 def _offset_polyline(points: list[QPointF], offset: float) -> list[QPointF]:
-    """Return a stable mitered offset for an open editor-space polyline."""
+    """Return a stable mitered offset for an open or closed polyline."""
     if len(points) < 2 or abs(offset) <= 1e-9:
         return [QPointF(point) for point in points]
 
+    closed = len(points) >= 4 and math.hypot(
+        points[0].x() - points[-1].x(),
+        points[0].y() - points[-1].y(),
+    ) <= 1e-6
+    vertices = points[:-1] if closed else points
     normals: list[QPointF] = []
-    for start, end in zip(points, points[1:]):
+    segment_count = len(vertices) if closed else len(vertices) - 1
+    for index in range(segment_count):
+        start = vertices[index]
+        end = vertices[(index + 1) % len(vertices)]
         dx = end.x() - start.x()
         dy = end.y() - start.y()
         length = math.hypot(dx, dy)
@@ -58,17 +66,17 @@ def _offset_polyline(points: list[QPointF], offset: float) -> list[QPointF]:
             normals.append(QPointF(dy / length, -dx / length))
 
     result: list[QPointF] = []
-    for index, point in enumerate(points):
-        if index == 0:
+    for index, point in enumerate(vertices):
+        if not closed and index == 0:
             normal = normals[0]
             result.append(point + normal * offset)
             continue
-        if index == len(points) - 1:
+        if not closed and index == len(vertices) - 1:
             normal = normals[-1]
             result.append(point + normal * offset)
             continue
 
-        previous = normals[index - 1]
+        previous = normals[(index - 1) % len(normals)]
         following = normals[index]
         bisector = previous + following
         bisector_length = math.hypot(bisector.x(), bisector.y())
@@ -91,6 +99,8 @@ def _offset_polyline(points: list[QPointF], offset: float) -> list[QPointF]:
         miter_distance = max(-maximum, min(maximum, miter_distance))
         result.append(point + bisector * miter_distance)
 
+    if closed and result:
+        result.append(QPointF(result[0]))
     return result
 
 
@@ -138,8 +148,11 @@ class _ContinuousRoadNodeHandle(QGraphicsEllipseItem):
         self.road = road
         self.index = int(index)
         self._syncing = False
+        self._dragging = False
+        self.is_control_handle = True
         self.setFlags(
             QGraphicsItem.GraphicsItemFlag.ItemIsMovable
+            | QGraphicsItem.GraphicsItemFlag.ItemIsSelectable
             | QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges
         )
         self.setAcceptHoverEvents(True)
@@ -168,16 +181,61 @@ class _ContinuousRoadNodeHandle(QGraphicsEllipseItem):
 
     def mousePressEvent(self, event):
         self.road.setSelected(True)
-        scene = self.scene()
-        if scene is not None and hasattr(scene, "window"):
-            scene.window.begin_canvas_undo("Reshape continuous road")
+        self.setSelected(True)
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._dragging = True
+            scene = self.scene()
+            if scene is not None and hasattr(scene, "window"):
+                scene.window.begin_canvas_undo("Reshape continuous road")
+            event.accept()
+            return
         super().mousePressEvent(event)
 
+    def mouseMoveEvent(self, event):
+        if self._dragging:
+            proposed = self.road.mapFromScene(event.scenePos())
+            self.setPos(self.road.snap_node_local(self.index, proposed))
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
     def mouseReleaseEvent(self, event):
+        if self._dragging and event.button() == Qt.MouseButton.LeftButton:
+            self._dragging = False
+            scene = self.scene()
+            if scene is not None and hasattr(scene, "window"):
+                scene.window.end_canvas_undo()
+            event.accept()
+            return
         super().mouseReleaseEvent(event)
+
+    def contextMenuEvent(self, event):
+        self.road.setSelected(True)
+        self.setSelected(True)
         scene = self.scene()
-        if scene is not None and hasattr(scene, "window"):
-            scene.window.end_canvas_undo()
+        if scene is None or not hasattr(scene, "window"):
+            event.ignore()
+            return
+        window = scene.window
+        menu = QMenu()
+        exact_action = menu.addAction("Set exact point position…")
+        before_action = menu.addAction("Insert point before")
+        before_action.setEnabled(self.index > 0)
+        after_action = menu.addAction("Insert point after")
+        after_action.setEnabled(self.index < len(self.road.points_m) - 1)
+        menu.addSeparator()
+        delete_action = menu.addAction("Delete point")
+        delete_action.setEnabled(len(self.road.points_m) > 2)
+        chosen = menu.exec(event.screenPos())
+        if chosen is exact_action:
+            window.edit_continuous_road_control_point(self.road, self.index)
+        elif chosen is before_action:
+            window.insert_continuous_road_control_point(self.road, self.index, before=True)
+        elif chosen is after_action:
+            window.insert_continuous_road_control_point(self.road, self.index, before=False)
+        elif chosen is delete_action:
+            window.delete_continuous_road_control_point(self.road, self.index)
+        event.accept()
 
     def mouseDoubleClickEvent(self, event):
         if len(self.road.points_m) <= 2:
@@ -360,16 +418,32 @@ class ContinuousRoadItem(TrackItem):
         points_m: list[tuple[float, float]] | None = None,
         width_m: float = DEFAULT_ROAD_WIDTH_M,
         smooth: bool = False,
+        source_guide_id: str = "",
+        auto_connector: bool = False,
         object_id: str | None = None,
     ):
         super().__init__(object_id=object_id)
         self.width_m = max(1.0, float(width_m))
         self.smooth = bool(smooth)
+        self.source_guide_id = str(source_guide_id or "")
+        self.auto_connector = bool(auto_connector)
         self.points_m = self._clean_points(
             points_m or [(0.0, 0.0), (DEFAULT_ROAD_LENGTH_M, 0.0)]
         )
         self._node_handles: list[_ContinuousRoadNodeHandle] = []
-        self._rebuild_node_handles()
+        if self.auto_connector:
+            self.setFlag(
+                QGraphicsItem.GraphicsItemFlag.ItemIsMovable,
+                False,
+            )
+            self.setFlag(
+                QGraphicsItem.GraphicsItemFlag.ItemIsSelectable,
+                False,
+            )
+            self.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
+            self.setZValue(11)
+        else:
+            self._rebuild_node_handles()
 
     @staticmethod
     def _clean_points(points) -> list[tuple[float, float]]:
@@ -439,7 +513,8 @@ class ContinuousRoadItem(TrackItem):
         cleaned = self._clean_points(points_m)
         self.prepareGeometryChange()
         self.points_m = cleaned
-        self._rebuild_node_handles()
+        if not self.auto_connector:
+            self._rebuild_node_handles()
         self.update()
         scene = self.scene()
         if scene is not None:
@@ -561,6 +636,25 @@ class ContinuousRoadItem(TrackItem):
         center_path = _path_from_points(points)
         road_width_px = self.width_m * PIXELS_PER_METER
 
+        if self.auto_connector:
+            center = QPointF(0.0, 0.0)
+            if self.isSelected():
+                painter.setPen(QPen(SELECTION_COLOR, 4.0))
+                painter.setBrush(ROAD_COLOR)
+                painter.drawEllipse(
+                    center,
+                    road_width_px / 2.0 + 3.0,
+                    road_width_px / 2.0 + 3.0,
+                )
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(ROAD_COLOR)
+            painter.drawEllipse(
+                center,
+                road_width_px / 2.0,
+                road_width_px / 2.0,
+            )
+            return
+
         if self.isSelected():
             selection_pen = QPen(SELECTION_COLOR, road_width_px + 7.0)
             self._configure_path_pen(selection_pen)
@@ -605,6 +699,8 @@ class ContinuousRoadItem(TrackItem):
         self.draw_connection_handles(painter)
 
     def connection_points_local(self) -> list[dict]:
+        if self.auto_connector:
+            return []
         points = self.rendered_points_px()
         if len(points) < 2:
             return []
@@ -649,6 +745,10 @@ class ContinuousRoadItem(TrackItem):
                 "road_markings": self.road_marking_dict(),
             }
         )
+        if self.source_guide_id:
+            data["source_guide_id"] = self.source_guide_id
+        if self.auto_connector:
+            data["auto_connector"] = True
         return data
 
     @classmethod
@@ -657,6 +757,8 @@ class ContinuousRoadItem(TrackItem):
             points_m=data.get("points_m"),
             width_m=float(data.get("width_m", DEFAULT_ROAD_WIDTH_M)),
             smooth=bool(data.get("smooth", False)),
+            source_guide_id=data.get("source_guide_id", ""),
+            auto_connector=bool(data.get("auto_connector", False)),
             object_id=data.get("id"),
         )
         item.setPos(
@@ -671,6 +773,8 @@ class ContinuousRoadItem(TrackItem):
         return item
 
     def selection_text(self) -> str:
+        if self.auto_connector:
+            return super().selection_text() + f"\nAutomatic seamless junction\nWidth: {self.width_m:.1f} m"
         return (
             super().selection_text()
             + f"\nNodes: {len(self.points_m)}"

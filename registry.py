@@ -41,6 +41,7 @@ from items.environment import (
 )
 from items.base import TrackItem
 from items.reference import ReferenceImageItem
+from items.sketch import SketchLineItem, SketchArcItem, SketchCircleItem
 
 TRACK_ITEM_CLASSES = {
     StraightRoadItem.TYPE_NAME: StraightRoadItem,
@@ -75,6 +76,9 @@ TRACK_ITEM_CLASSES = {
     SecondaryQCarItem.TYPE_NAME: SecondaryQCarItem,
     TriggerZoneItem.TYPE_NAME: TriggerZoneItem,
     ReferenceImageItem.TYPE_NAME: ReferenceImageItem,
+    SketchLineItem.TYPE_NAME: SketchLineItem,
+    SketchArcItem.TYPE_NAME: SketchArcItem,
+    SketchCircleItem.TYPE_NAME: SketchCircleItem,
 }
 
 def create_track_item_from_dict(data: dict) -> TrackItem | None:

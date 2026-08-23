@@ -123,6 +123,126 @@ class TrackScene(QGraphicsScene):
         ]
 
     # ------------------------------------------------------------------
+    # CAD sketch topology
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _segment_intersection(
+        a: QPointF,
+        b: QPointF,
+        c: QPointF,
+        d: QPointF,
+    ) -> tuple[QPointF, float, float] | None:
+        """Return the finite-segment intersection and both segment ratios."""
+        ab_x = b.x() - a.x()
+        ab_y = b.y() - a.y()
+        cd_x = d.x() - c.x()
+        cd_y = d.y() - c.y()
+        denominator = ab_x * cd_y - ab_y * cd_x
+        if abs(denominator) <= 1e-8:
+            return None
+
+        ac_x = c.x() - a.x()
+        ac_y = c.y() - a.y()
+        along_ab = (ac_x * cd_y - ac_y * cd_x) / denominator
+        along_cd = (ac_x * ab_y - ac_y * ab_x) / denominator
+        tolerance = 1e-6
+        if not (
+            -tolerance <= along_ab <= 1.0 + tolerance
+            and -tolerance <= along_cd <= 1.0 + tolerance
+        ):
+            return None
+        return (
+            QPointF(a.x() + along_ab * ab_x, a.y() + along_ab * ab_y),
+            max(0.0, min(1.0, along_ab)),
+            max(0.0, min(1.0, along_cd)),
+        )
+
+    def sketch_connection_nodes(self) -> list[dict]:
+        """Find real intersections between the current CAD guide paths.
+
+        Circle guides are sampled to short chords, so the same routine works
+        for line-line, line-arc, line-circle, and arc-circle connections.
+        Coincident endpoints are folded into one node.
+        """
+        guides = [
+            item
+            for item in self.track_items()
+            if callable(getattr(item, "is_sketch_guide", None))
+            and item.is_sketch_guide()
+        ]
+        nodes: list[dict] = []
+        merge_distance_px = 0.08 * PIXELS_PER_METER
+
+        for first_index, first in enumerate(guides):
+            first_points = first.sampled_scene_points()
+            first_bounds = first.sceneBoundingRect()
+            for second in guides[first_index + 1:]:
+                second_bounds = second.sceneBoundingRect()
+                if not first_bounds.intersects(second_bounds):
+                    continue
+                second_points = second.sampled_scene_points()
+                for first_segment, (a, b) in enumerate(
+                    zip(first_points, first_points[1:])
+                ):
+                    for second_segment, (c, d) in enumerate(
+                        zip(second_points, second_points[1:])
+                    ):
+                        crossing = self._segment_intersection(a, b, c, d)
+                        if crossing is None:
+                            continue
+                        point, first_ratio, second_ratio = crossing
+                        merged = None
+                        for node in nodes:
+                            if point_distance(point, node["pos"]) <= merge_distance_px:
+                                merged = node
+                                break
+                        if merged is None:
+                            merged = {"pos": point, "members": []}
+                            nodes.append(merged)
+                        for guide, segment, ratio in (
+                            (first, first_segment, first_ratio),
+                            (second, second_segment, second_ratio),
+                        ):
+                            if not any(
+                                member["guide"] is guide
+                                for member in merged["members"]
+                            ):
+                                merged["members"].append({
+                                    "guide": guide,
+                                    "segment": segment,
+                                    "ratio": ratio,
+                                })
+        return nodes
+
+    def sketch_road_points(self, guide: TrackItem) -> list[QPointF]:
+        """Insert logical crossing nodes into one guide's sampled path."""
+        points = list(guide.sampled_scene_points())
+        if len(points) < 2:
+            return points
+        insertions: dict[int, list[tuple[float, QPointF]]] = {}
+        for node in self.sketch_connection_nodes():
+            for member in node["members"]:
+                if member["guide"] is not guide:
+                    continue
+                segment = int(member["segment"])
+                ratio = float(member["ratio"])
+                # Existing segment endpoints are already real guide nodes.
+                if 1e-6 < ratio < 1.0 - 1e-6:
+                    insertions.setdefault(segment, []).append(
+                        (ratio, QPointF(node["pos"]))
+                    )
+
+        result: list[QPointF] = []
+        for segment, point in enumerate(points[:-1]):
+            result.append(QPointF(point))
+            for _, crossing in sorted(insertions.get(segment, [])):
+                if point_distance(result[-1], crossing) > 0.01:
+                    result.append(crossing)
+        result.append(QPointF(points[-1]))
+        return result
+
+    # ------------------------------------------------------------------
     # Combined snapping
     # ------------------------------------------------------------------
 
@@ -161,6 +281,23 @@ class TrackScene(QGraphicsScene):
                 if distance <= ENDPOINT_SNAP_DISTANCE_PX and distance < best_distance:
                     best_distance = distance
                     best_point = connection["pos"]
+
+            # Closed sketch primitives such as circles have no arbitrary
+            # PowerPoint-style fixed handles. They offer the geometrically
+            # nearest point on their perimeter and gain a persistent port only
+            # when another guide actually connects there.
+            candidate_getter = getattr(
+                target_item,
+                "nearest_connection_candidate_scene",
+                None,
+            )
+            if callable(candidate_getter):
+                candidate = candidate_getter(scene_point)
+                if candidate is not None:
+                    distance = point_distance(scene_point, candidate)
+                    if distance <= ENDPOINT_SNAP_DISTANCE_PX and distance < best_distance:
+                        best_distance = distance
+                        best_point = candidate
 
         return QPointF(best_point) if best_point is not None else snapped
 

@@ -51,7 +51,43 @@ def make_tool_icon(kind: str, size: int = 30) -> QIcon:
     # ------------------------------------------------------------
     # Roads
     # ------------------------------------------------------------
-    if kind == "continuous_road":
+    if kind == "sketch_line":
+        p.setPen(QPen(ACCENT, 2.2, Qt.PenStyle.DashLine))
+        p.drawLine(QPointF(4, s - 5), QPointF(s - 4, 5))
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(AMBER)
+        p.drawEllipse(QPointF(4, s - 5), 2.8, 2.8)
+        p.drawEllipse(QPointF(s - 4, 5), 2.8, 2.8)
+
+    elif kind == "sketch_arc":
+        path = QPainterPath(QPointF(4, s - 5))
+        path.quadTo(QPointF(cx, 1), QPointF(s - 4, s - 5))
+        p.setPen(QPen(ACCENT, 2.2, Qt.PenStyle.DashLine))
+        p.drawPath(path)
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(AMBER)
+        for point in (QPointF(4, s - 5), QPointF(cx, 5), QPointF(s - 4, s - 5)):
+            p.drawEllipse(point, 2.5, 2.5)
+
+    elif kind == "sketch_circle":
+        p.setPen(QPen(ACCENT, 2.2, Qt.PenStyle.DashLine))
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.drawEllipse(QRectF(4, 4, s - 8, s - 8))
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(AMBER)
+        p.drawEllipse(QPointF(s - 4, cy), 2.8, 2.8)
+
+    elif kind == "generate_road":
+        p.setPen(QPen(ACCENT, 1.5, Qt.PenStyle.DashLine))
+        p.drawLine(QPointF(4, 7), QPointF(s - 4, 7))
+        p.setPen(_road_pen(8))
+        p.drawLine(QPointF(4, s - 8), QPointF(s - 4, s - 8))
+        p.setPen(QPen(GREEN, 2.0))
+        p.drawLine(QPointF(cx - 3, 11), QPointF(cx - 3, s - 14))
+        p.drawLine(QPointF(cx - 3, s - 14), QPointF(cx - 7, s - 18))
+        p.drawLine(QPointF(cx - 3, s - 14), QPointF(cx + 1, s - 18))
+
+    elif kind == "continuous_road":
         p.setPen(_road_pen(7))
         road_path = QPainterPath(QPointF(3, s - 6))
         road_path.lineTo(QPointF(s * 0.38, s * 0.62))

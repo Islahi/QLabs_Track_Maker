@@ -254,12 +254,20 @@ def spawn_polyline_spline(qlabs, points, width, color, z=ROAD_Z):
 
 
 def polyline_offset_design(points, offset):
-    """Offset an open local-world polyline with bounded miter joins."""
+    """Offset an open or closed local-world polyline with bounded miters."""
     if len(points) < 2 or abs(offset) <= 1e-9:
         return list(points)
 
+    closed = len(points) >= 4 and math.hypot(
+        float(points[0][0]) - float(points[-1][0]),
+        float(points[0][1]) - float(points[-1][1]),
+    ) <= 1e-9
+    vertices = points[:-1] if closed else points
     normals = []
-    for start, end in zip(points, points[1:]):
+    segment_count = len(vertices) if closed else len(vertices) - 1
+    for index in range(segment_count):
+        start = vertices[index]
+        end = vertices[(index + 1) % len(vertices)]
         dx = float(end[0]) - float(start[0])
         dy = float(end[1]) - float(start[1])
         length = math.hypot(dx, dy)
@@ -270,18 +278,18 @@ def polyline_offset_design(points, offset):
         )
 
     result = []
-    for index, point in enumerate(points):
+    for index, point in enumerate(vertices):
         px, py = float(point[0]), float(point[1])
-        if index == 0:
+        if not closed and index == 0:
             nx, ny = normals[0]
             result.append((px + nx * offset, py + ny * offset))
             continue
-        if index == len(points) - 1:
+        if not closed and index == len(vertices) - 1:
             nx, ny = normals[-1]
             result.append((px + nx * offset, py + ny * offset))
             continue
 
-        previous = normals[index - 1]
+        previous = normals[(index - 1) % len(normals)]
         following = normals[index]
         bx = previous[0] + following[0]
         by = previous[1] + following[1]
@@ -296,6 +304,8 @@ def polyline_offset_design(points, offset):
         maximum = max(abs(offset), abs(offset) * 4.0)
         distance = clamp(distance, -maximum, maximum)
         result.append((px + bx * distance, py + by * distance))
+    if closed and result:
+        result.append(result[0])
     return result
 
 
@@ -565,6 +575,12 @@ def spawn_road_surface(qlabs, obj):
     width = max(0.001, float(obj.get("width_m", 6.0)) * scale)
 
     if obj_type == "continuous_road":
+        if bool(obj.get("auto_connector", False)):
+            half = max(0.05, float(obj.get("width_m", 6.0)) / 2.0)
+            p1 = scaled_world_point(obj, -half, 0.0)
+            p2 = scaled_world_point(obj, half, 0.0)
+            spawn_straight_spline(qlabs, p1, p2, width, ROAD_COLOR)
+            return
         points = scaled_polyline_points(obj, continuous_local_points(obj))
         spawn_polyline_spline(qlabs, points, width, ROAD_COLOR)
         return
@@ -931,6 +947,8 @@ def _connection_points_design(obj):
     local = []
 
     if obj_type == "continuous_road":
+        if bool(obj.get("auto_connector", False)):
+            return []
         points = continuous_local_points(obj)
         if len(points) >= 2:
             start_dx = points[1][0] - points[0][0]

@@ -9,13 +9,15 @@ The editor provides a 2-D, meter-based canvas with snapping, calibrated workspac
 ## Features
 
 - Build roads from straight sections, 45°/90° curves, intersections, T-junctions, road ends, and median walls.
+- Sketch CAD-style Line, three-point Arc, and Circle guides, connect them at endpoints or real intersections, then generate seamless road surfaces. Two-guide corners receive automatic circular fillets; branching junctions receive surface patches.
 - Draw connected continuous roads by clicking an arbitrary sequence of control nodes, then reshape them directly on the canvas.
 - Configure road widths, markings, colors, line styles, and component transforms.
 - Place traffic lights, road signs, crosswalks, pedestrians, animals, QCar2 actors, and trigger zones.
 - Add buildings, trees, benches, lamps, bins, planters, fountains, and other static scenery.
 - Automatically fill open space with urban, suburban, or park scenery while preserving a roadside reserve.
 - Create manual movement paths for supported actors without relying on a QLabs navigation mesh.
-- Use endpoint/wall snapping, an adaptive grid, duplication, rotation, deletion, and undo.
+- Resize CAD road geometry directly with orange mouse handles; right-click a handle for exact position/radius and line-constraint controls. Generation removes the construction guides and leaves editable continuous roads with cyan point handles and right-click insert/delete controls.
+- Use endpoint/wall snapping, automatic horizontal/vertical line constraints, an adaptive grid, duplication, rotation, deletion, and undo.
 - Import movable and resizable reference images for manual tracing.
 - Save complete editor projects as JSON and reopen them later.
 - Export a standalone Python script that connects to QLabs and builds the configured scene.
@@ -89,8 +91,8 @@ python main.py
 
 1. Open the **Setup** tab and select the project scale, canvas size, and target QLabs workspace.
 2. Adjust **Spline Z** if the generated road surface must sit above native workspace geometry.
-3. Use **Build** to add roads, signs, actors, QCars, and editing tools.
-   The continuous-road tool accepts left-clicked nodes; press **Enter** or right-click to finish, **Backspace** to remove the latest node, or **Esc** to cancel. Select a completed continuous road to drag its cyan nodes, insert/remove nodes, reverse its direction, or enable smooth corners.
+3. Use **Build → Sketch** to draw a **Line** (two clicks), **Arc** (start, point on arc, end), or **Circle** (center, radius). The selected sketch tool remains active after each shape so connected lines can be drawn without repeatedly choosing it. Endpoints snap to compatible guide/road endpoints and to the nearest logical point on a circle. Green nodes show actual guide intersections. Select a guide and drag its orange handles to resize it, or right-click a handle for precise editing. Click **Generate Road** to merge degree-two connections with automatic tangent fillets, patch branching junctions, and remove the construction guides. The resulting continuous roads remain editable with cyan nodes.
+   The original continuous-road tool remains available: left-click nodes; press **Enter** or right-click to finish, **Backspace** to remove the latest node, or **Esc** to cancel. Select a completed continuous road to drag its cyan nodes, insert/remove nodes, reverse its direction, or enable smooth corners.
 4. Use **Scenery** to place objects manually or auto-fill the editable canvas.
 5. Select an object to edit its position, orientation, dimensions, appearance, and behavior in the inspector.
 6. Save the editable project with **File → Save**. Projects use the `.json` format.
@@ -116,6 +118,8 @@ The generated script connects to QLabs, spawns the configured scene, starts QCar
 | Delete selected | `Delete` |
 
 Mouse-wheel zoom and middle-button panning are available in the graphics view. Objects can be selected and moved directly on the canvas.
+
+The application starts maximized. The Inspector is a resizable dock with vertical and horizontal scrolling, and each top toolbar page scrolls horizontally when the window is too narrow to show every command.
 
 ## Project and export formats
 

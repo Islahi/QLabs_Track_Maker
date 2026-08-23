@@ -45,6 +45,7 @@ class TrackItem(QGraphicsItem):
         super().__init__()
 
         self.object_id = object_id or make_object_id()
+        self._position_snap_suspended = False
 
         # Human-readable alias used by selected actor classes. The stable
         # object_id remains the reference stored by trigger links.
@@ -446,6 +447,8 @@ class TrackItem(QGraphicsItem):
     def itemChange(self, change, value):
         if change == QGraphicsItem.GraphicsItemChange.ItemPositionChange:
             if isinstance(value, QPointF):
+                if self._position_snap_suspended:
+                    return value
                 # Deserialization constructs items before adding them to a
                 # scene. Preserve those saved coordinates exactly: a road
                 # endpoint snap can legitimately leave the item's origin off
@@ -482,6 +485,18 @@ class TrackItem(QGraphicsItem):
                 scene.notify_selection_or_geometry_changed()
 
         return result
+
+    def set_pos_exact(self, position: QPointF):
+        """Set a scene position without grid/endpoint snapping.
+
+        Used by project restoration and generated geometry whose coordinates
+        have already been resolved by the CAD sketch system.
+        """
+        self._position_snap_suspended = True
+        try:
+            self.setPos(position)
+        finally:
+            self._position_snap_suspended = False
 
     def rotate_step(self, amount_deg: float):
         self.setRotation(normalize_angle(self.rotation() + amount_deg))

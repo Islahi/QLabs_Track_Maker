@@ -25,7 +25,11 @@ from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
     QDoubleSpinBox,
+    QDialog,
+    QDialogButtonBox,
+    QDockWidget,
     QFileDialog,
+    QFrame,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
@@ -36,6 +40,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -110,6 +115,12 @@ from export.qlabs_exporter import build_qlabs_setup_source
 from core.traffic_sign_catalog import DEFAULT_TRAFFIC_SIGN_KEY, TRAFFIC_SIGN_CATALOG
 from items.base import TrackItem
 from items.reference import ReferenceImageItem
+from items.sketch import (
+    SketchGuideItem,
+    SketchLineItem,
+    SketchArcItem,
+    SketchCircleItem,
+)
 from items.roads import (
     StraightRoadItem,
     ContinuousRoadItem,
@@ -286,6 +297,9 @@ class TrackEditorWindow(QMainWindow):
         self.continuous_road_points: list[QPointF] = []
         self.continuous_road_item: ContinuousRoadItem | None = None
         self.continuous_road_preview: QPointF | None = None
+        self.sketch_tool_mode: str | None = None
+        self.sketch_tool_points: list[QPointF] = []
+        self.sketch_tool_preview: QPointF | None = None
 
         self.setWindowTitle(f"QLabs Track Editor v{self.VERSION}")
         self.resize(1500, 920)
@@ -518,6 +532,21 @@ class TrackEditorWindow(QMainWindow):
         )
         self.continuous_road_group.setVisible(False)
         inspector_layout.addWidget(self.continuous_road_group)
+
+        self.sketch_guide_group = QGroupBox("CAD ROAD GUIDE")
+        sketch_guide_layout = QVBoxLayout(self.sketch_guide_group)
+        self.sketch_guide_help = QLabel()
+        self.sketch_guide_help.setWordWrap(True)
+        sketch_guide_layout.addWidget(self.sketch_guide_help)
+        self.sketch_generate_selected_button = QPushButton(
+            "Generate Road and Remove Guides"
+        )
+        self.sketch_generate_selected_button.clicked.connect(
+            self.generate_roads_from_sketch
+        )
+        sketch_guide_layout.addWidget(self.sketch_generate_selected_button)
+        self.sketch_guide_group.setVisible(False)
+        inspector_layout.addWidget(self.sketch_guide_group)
 
         # --------------------------------------------------------
         # Reference image controls
@@ -1055,15 +1084,21 @@ class TrackEditorWindow(QMainWindow):
         self.inspector_scroll = QScrollArea()
         self.inspector_scroll.setWidgetResizable(True)
         self.inspector_scroll.setHorizontalScrollBarPolicy(
-            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+            Qt.ScrollBarPolicy.ScrollBarAsNeeded
         )
         self.inspector_scroll.setVerticalScrollBarPolicy(
             Qt.ScrollBarPolicy.ScrollBarAsNeeded
         )
         self.inspector_scroll.setWidget(inspector_contents)
-        # Keep a stable, roomy inspector column.  The vertical scrollbar lives
-        # inside this width, so property rows never push or resize the window.
-        self.inspector_scroll.setFixedWidth(420)
+        # The inspector lives in a resizable dock. Long forms can wrap and,
+        # as a final fallback, scroll horizontally instead of disappearing.
+        self.inspector_scroll.setMinimumWidth(280)
+        self.inspector_scroll.setMaximumWidth(16777215)
+        for form in inspector_contents.findChildren(QFormLayout):
+            form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
+            form.setFieldGrowthPolicy(
+                QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow
+            )
 
         # --------------------------------------------------------
         # Canvas
@@ -1073,7 +1108,10 @@ class TrackEditorWindow(QMainWindow):
         canvas_layout.setContentsMargins(0, 0, 0, 0)
         canvas_layout.addWidget(self.view)
 
-        bottom = QHBoxLayout()
+        bottom_contents = QWidget()
+        bottom = QHBoxLayout(bottom_contents)
+        bottom.setContentsMargins(0, 0, 0, 0)
+        bottom.setSizeConstraint(QLayout.SizeConstraint.SetMinimumSize)
         self.cursor_label = QLabel("Cursor: X 0.0 m | Y 0.0 m")
         self.zoom_label = QLabel("Zoom: 100%")
         self.snap_status_label = QLabel("Endpoint/wall snap: ON")
@@ -1088,13 +1126,49 @@ class TrackEditorWindow(QMainWindow):
         bottom.addWidget(self.snap_status_label)
         bottom.addSpacing(20)
         bottom.addWidget(self.zoom_label)
-        canvas_layout.addLayout(bottom)
+        bottom_scroll = QScrollArea()
+        bottom_scroll.setObjectName("canvasStatusScroll")
+        bottom_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        bottom_scroll.setWidgetResizable(True)
+        bottom_scroll.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAsNeeded
+        )
+        bottom_scroll.setVerticalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
+        bottom_scroll.setSizePolicy(
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Fixed,
+        )
+        bottom_scroll.setWidget(bottom_contents)
+        canvas_layout.addWidget(bottom_scroll)
 
         body.addWidget(canvas_container, 1)
-        body.addWidget(self.inspector_scroll)
         root.addLayout(body, 1)
 
         self.setCentralWidget(central)
+
+        self.inspector_dock = QDockWidget("Inspector", self)
+        self.inspector_dock.setObjectName("inspectorDock")
+        self.inspector_dock.setAllowedAreas(
+            Qt.DockWidgetArea.LeftDockWidgetArea
+            | Qt.DockWidgetArea.RightDockWidgetArea
+        )
+        self.inspector_dock.setFeatures(
+            QDockWidget.DockWidgetFeature.DockWidgetMovable
+            | QDockWidget.DockWidgetFeature.DockWidgetFloatable
+        )
+        self.inspector_dock.setMinimumWidth(300)
+        self.inspector_dock.setWidget(self.inspector_scroll)
+        self.addDockWidget(
+            Qt.DockWidgetArea.RightDockWidgetArea,
+            self.inspector_dock,
+        )
+        self.resizeDocks(
+            [self.inspector_dock],
+            [380],
+            Qt.Orientation.Horizontal,
+        )
 
     def toggle_selected_object_summary(self):
         """Collapse/expand only the summary contents.
@@ -1523,6 +1597,7 @@ class TrackEditorWindow(QMainWindow):
     def start_continuous_road_drawing(self):
         if self.continuous_road_drawing:
             return
+        self.cancel_sketch_tool()
         self.finish_path_editing()
         self.scene.clearSelection()
         self.continuous_road_drawing = True
@@ -1650,6 +1725,745 @@ class TrackEditorWindow(QMainWindow):
         self._set_continuous_road_button_checked(False)
         self.statusBar().showMessage("Continuous road drawing cancelled.", 2500)
         self.view.viewport().update()
+
+    # ------------------------------------------------------------
+    # CAD road-guide sketching
+    # ------------------------------------------------------------
+
+    def _set_sketch_tool_buttons(self, active_mode: str | None):
+        for mode, name in (
+            ("line", "sketch_line_button"),
+            ("arc", "sketch_arc_button"),
+            ("circle", "sketch_circle_button"),
+        ):
+            button = getattr(self.top_bar, name, None)
+            if button is None:
+                continue
+            button.blockSignals(True)
+            button.setChecked(mode == active_mode)
+            button.blockSignals(False)
+
+    def toggle_sketch_tool(self, mode: str, enabled: bool):
+        mode = str(mode)
+        if enabled:
+            self.start_sketch_tool(mode)
+        elif self.sketch_tool_mode == mode:
+            self.cancel_sketch_tool()
+
+    def start_sketch_tool(self, mode: str):
+        if mode not in {"line", "arc", "circle"}:
+            return
+        if self.continuous_road_drawing:
+            self.finish_continuous_road_drawing()
+        if self.sketch_tool_mode is not None:
+            self.cancel_sketch_tool()
+        self.finish_path_editing()
+        self.scene.clearSelection()
+        self.sketch_tool_mode = mode
+        self.sketch_tool_points = []
+        self.sketch_tool_preview = None
+        self._set_sketch_tool_buttons(mode)
+        self.view.setFocus()
+        instructions = {
+            "line": "Line guide: click start and end.",
+            "arc": "Arc guide: click start, a point on the arc, then end.",
+            "circle": "Circle guide: click center, then a point defining radius.",
+        }
+        self.statusBar().showMessage(
+            instructions[mode] + " Right-click or Esc cancels."
+        )
+        self.view.viewport().update()
+
+    def cancel_sketch_tool(self):
+        if self.sketch_tool_mode is None:
+            self._set_sketch_tool_buttons(None)
+            return
+        self.sketch_tool_mode = None
+        self.sketch_tool_points = []
+        self.sketch_tool_preview = None
+        self.undo_manager.cancel()
+        self._update_undo_controls()
+        self._set_sketch_tool_buttons(None)
+        self.statusBar().showMessage("Road-guide sketch cancelled.", 2000)
+        self.view.viewport().update()
+
+    def _sketch_snap_point(self, scene_pos: QPointF) -> QPointF:
+        # The middle point of a three-point arc is a shape control rather than
+        # a road connection, so it uses only the grid. Endpoints use the full
+        # endpoint/circle-perimeter snap system.
+        if self.sketch_tool_mode == "arc" and len(self.sketch_tool_points) == 1:
+            return QPointF(
+                snap_value(scene_pos.x(), GRID_PIXELS),
+                snap_value(scene_pos.y(), GRID_PIXELS),
+            )
+        snapped = self.scene.snap_drawing_point(scene_pos)
+        if self.sketch_tool_mode == "line" and len(self.sketch_tool_points) == 1:
+            origin = self.sketch_tool_points[0]
+            dx = snapped.x() - origin.x()
+            dy = snapped.y() - origin.y()
+            tolerance = math.tan(math.radians(7.0))
+            if abs(dy) <= abs(dx) * tolerance:
+                snapped.setY(origin.y())
+            elif abs(dx) <= abs(dy) * tolerance:
+                snapped.setX(origin.x())
+        return snapped
+
+    def update_sketch_tool_preview(self, scene_pos: QPointF):
+        if self.sketch_tool_mode is None:
+            return
+        self.sketch_tool_preview = self._sketch_snap_point(scene_pos)
+        self.view.viewport().update()
+
+    @staticmethod
+    def _guide_points_m(scene_points: list[QPointF], anchor: QPointF) -> list[tuple[float, float]]:
+        return [
+            (
+                (point.x() - anchor.x()) / PIXELS_PER_METER,
+                -(point.y() - anchor.y()) / PIXELS_PER_METER,
+            )
+            for point in scene_points
+        ]
+
+    def add_sketch_tool_point(self, scene_pos: QPointF):
+        mode = self.sketch_tool_mode
+        if mode is None:
+            return
+        point = self._sketch_snap_point(scene_pos)
+        if self.sketch_tool_points and math.hypot(
+            point.x() - self.sketch_tool_points[-1].x(),
+            point.y() - self.sketch_tool_points[-1].y(),
+        ) < 5.0:
+            self.statusBar().showMessage("Choose a different sketch point.", 2000)
+            return
+
+        if not self.sketch_tool_points:
+            self._begin_undo_transaction(f"Draw road-guide {mode}")
+        self.sketch_tool_points.append(QPointF(point))
+        self.sketch_tool_preview = QPointF(point)
+        required = 3 if mode == "arc" else 2
+        if len(self.sketch_tool_points) < required:
+            self.view.viewport().update()
+            return
+
+        anchor = self.sketch_tool_points[0]
+        if mode == "line":
+            guide = SketchLineItem(
+                points_m=self._guide_points_m(self.sketch_tool_points, anchor)
+            )
+            guide.setPos(anchor)
+        elif mode == "arc":
+            guide = SketchArcItem(
+                points_m=self._guide_points_m(self.sketch_tool_points, anchor)
+            )
+            guide.setPos(anchor)
+        else:
+            center, radius_point = self.sketch_tool_points
+            radius_m = math.hypot(
+                radius_point.x() - center.x(),
+                radius_point.y() - center.y(),
+            ) / PIXELS_PER_METER
+            guide = SketchCircleItem(radius_m=max(1.0, radius_m))
+            guide.setPos(center)
+
+        self.scene.addItem(guide)
+        guide.setSelected(True)
+        self.register_sketch_circle_ports(guide)
+        self.sketch_tool_points = []
+        self.sketch_tool_preview = None
+        self._set_sketch_tool_buttons(mode)
+        self._commit_undo_transaction()
+        self.statusBar().showMessage(
+            f"{guide.DISPLAY_NAME} created. Drag its orange handles to resize it; "
+            f"use Generate Road when the sketch is ready. {mode.title()} remains active; "
+            "right-click or Esc to exit the tool.",
+            5000,
+        )
+        self.view.viewport().update()
+
+    def remove_last_sketch_tool_point(self):
+        if self.sketch_tool_mode is None or not self.sketch_tool_points:
+            return
+        self.sketch_tool_points.pop()
+        self.sketch_tool_preview = (
+            QPointF(self.sketch_tool_points[-1])
+            if self.sketch_tool_points
+            else None
+        )
+        self.view.viewport().update()
+
+    def register_sketch_circle_ports(self, guide: TrackItem):
+        if isinstance(guide, SketchCircleItem):
+            return
+        if not isinstance(guide, (SketchLineItem, SketchArcItem)):
+            return
+        circles = [
+            item
+            for item in self.scene.track_items()
+            if isinstance(item, SketchCircleItem)
+        ]
+        changed = False
+        for connection in guide.connection_points_scene():
+            point = connection["pos"]
+            for circle in circles:
+                candidate = circle.nearest_connection_candidate_scene(point)
+                if candidate is None:
+                    continue
+                if math.hypot(
+                    candidate.x() - point.x(),
+                    candidate.y() - point.y(),
+                ) <= 0.10 * PIXELS_PER_METER:
+                    before = len(circle.ports_deg)
+                    circle.add_port_scene(point)
+                    changed = changed or len(circle.ports_deg) != before
+        if changed:
+            self.scene.update()
+
+    def _apply_guide_geometry_to_road(
+        self,
+        guide: SketchGuideItem,
+        road: ContinuousRoadItem,
+    ) -> bool:
+        scene_points = self.scene.sketch_road_points(guide)
+        if len(scene_points) < 2:
+            return False
+        anchor = scene_points[0]
+        road.setRotation(0.0)
+        road.set_pos_exact(anchor)
+        road.set_points_m(self._generated_local_points(scene_points, anchor))
+        road.smooth = False
+        road.source_guide_id = str(guide.object_id)
+        road.update()
+        return True
+
+    def sync_generated_road_from_guide(self, guide: TrackItem) -> bool:
+        """Live-update the road owned by an edited CAD guide, if it exists."""
+        if not isinstance(guide, SketchGuideItem) or not guide.generated_road_id:
+            return False
+        road = next(
+            (
+                item
+                for item in self.scene.track_items()
+                if isinstance(item, ContinuousRoadItem)
+                and str(item.object_id) == str(guide.generated_road_id)
+            ),
+            None,
+        )
+        if road is None:
+            return False
+        changed = self._apply_guide_geometry_to_road(guide, road)
+        if changed:
+            self.scene.update()
+        return changed
+
+    @staticmethod
+    def _generated_local_points(scene_points: list[QPointF], anchor: QPointF):
+        return [
+            (
+                (point.x() - anchor.x()) / PIXELS_PER_METER,
+                -(point.y() - anchor.y()) / PIXELS_PER_METER,
+            )
+            for point in scene_points
+        ]
+
+    @staticmethod
+    def _polyline_length_px(points: list[QPointF]) -> float:
+        return sum(
+            math.hypot(end.x() - start.x(), end.y() - start.y())
+            for start, end in zip(points, points[1:])
+        )
+
+    @staticmethod
+    def _trim_polyline_start(
+        points: list[QPointF],
+        distance_px: float,
+    ) -> list[QPointF]:
+        remaining = max(0.0, float(distance_px))
+        for index, (start, end) in enumerate(zip(points, points[1:])):
+            length = math.hypot(end.x() - start.x(), end.y() - start.y())
+            if length <= 1e-9:
+                continue
+            if remaining < length:
+                ratio = remaining / length
+                cut = QPointF(
+                    start.x() + (end.x() - start.x()) * ratio,
+                    start.y() + (end.y() - start.y()) * ratio,
+                )
+                return [cut] + [QPointF(point) for point in points[index + 1:]]
+            remaining -= length
+        return [QPointF(points[-1])]
+
+    @classmethod
+    def _trim_polyline_end(
+        cls,
+        points: list[QPointF],
+        distance_px: float,
+    ) -> list[QPointF]:
+        return list(reversed(cls._trim_polyline_start(
+            list(reversed(points)),
+            distance_px,
+        )))
+
+    @classmethod
+    def _join_paths_with_fillet(
+        cls,
+        first: list[QPointF],
+        second: list[QPointF],
+        road_width_px: float,
+    ) -> list[QPointF]:
+        """Join two endpoint-connected paths with a tangent circular fillet."""
+        if len(first) < 2 or len(second) < 2:
+            return [QPointF(point) for point in first + second[1:]]
+        node = QPointF(
+            (first[-1].x() + second[0].x()) / 2.0,
+            (first[-1].y() + second[0].y()) / 2.0,
+        )
+        first = [QPointF(point) for point in first]
+        second = [QPointF(point) for point in second]
+        first[-1] = QPointF(node)
+        second[0] = QPointF(node)
+
+        incoming = node - first[-2]
+        outgoing = second[1] - node
+        in_length = math.hypot(incoming.x(), incoming.y())
+        out_length = math.hypot(outgoing.x(), outgoing.y())
+        if in_length <= 1e-6 or out_length <= 1e-6:
+            return first + second[1:]
+        incoming /= in_length
+        outgoing /= out_length
+        dot = max(-1.0, min(1.0,
+            incoming.x() * outgoing.x() + incoming.y() * outgoing.y()
+        ))
+        turn_angle = math.acos(dot)
+        if turn_angle <= math.radians(5.0) or turn_angle >= math.radians(170.0):
+            return first + second[1:]
+
+        tangent_factor = math.tan(turn_angle / 2.0)
+        if tangent_factor <= 1e-6:
+            return first + second[1:]
+        desired_radius = max(2.0 * PIXELS_PER_METER, road_width_px * 0.75)
+        available = min(
+            cls._polyline_length_px(first) * 0.35,
+            cls._polyline_length_px(second) * 0.35,
+        )
+        tangent_distance = min(desired_radius * tangent_factor, available)
+        if tangent_distance <= 0.25 * PIXELS_PER_METER:
+            return first + second[1:]
+        radius = tangent_distance / tangent_factor
+
+        trimmed_first = cls._trim_polyline_end(first, tangent_distance)
+        trimmed_second = cls._trim_polyline_start(second, tangent_distance)
+        if not trimmed_first or not trimmed_second:
+            return first + second[1:]
+        start = trimmed_first[-1]
+        end = trimmed_second[0]
+        normal_in = QPointF(-incoming.y(), incoming.x())
+        normal_out = QPointF(-outgoing.y(), outgoing.x())
+        denominator = (
+            normal_in.x() * normal_out.y()
+            - normal_in.y() * normal_out.x()
+        )
+        if abs(denominator) <= 1e-8:
+            return first + second[1:]
+        delta = end - start
+        along_normal = (
+            delta.x() * normal_out.y() - delta.y() * normal_out.x()
+        ) / denominator
+        center = start + normal_in * along_normal
+        measured_radius = math.hypot(start.x() - center.x(), start.y() - center.y())
+        if measured_radius <= 1e-6:
+            return first + second[1:]
+
+        start_angle = math.atan2(start.y() - center.y(), start.x() - center.x())
+        end_angle = math.atan2(end.y() - center.y(), end.x() - center.x())
+        cross = incoming.x() * outgoing.y() - incoming.y() * outgoing.x()
+        if cross >= 0.0:
+            sweep = (end_angle - start_angle) % math.tau
+        else:
+            sweep = -((start_angle - end_angle) % math.tau)
+        if abs(sweep) > math.pi:
+            sweep += -math.tau if sweep > 0.0 else math.tau
+        samples = max(4, int(math.ceil(abs(math.degrees(sweep)) / 5.0)))
+        arc = [
+            QPointF(
+                center.x() + measured_radius * math.cos(start_angle + sweep * step / samples),
+                center.y() + measured_radius * math.sin(start_angle + sweep * step / samples),
+            )
+            for step in range(samples + 1)
+        ]
+        return trimmed_first[:-1] + arc + trimmed_second[1:]
+
+    def _connected_guide_paths(
+        self,
+        guides: list[SketchGuideItem],
+        road_width_px: float,
+    ) -> list[list[QPointF]]:
+        """Merge endpoint-connected open guides into filleted road chains."""
+        output: list[list[QPointF]] = []
+        records = []
+        endpoint_tolerance = 0.12 * PIXELS_PER_METER
+        nodes: list[dict] = []
+
+        def node_for(point: QPointF, record_index: int, endpoint: int) -> int:
+            for node_index, node in enumerate(nodes):
+                if math.hypot(
+                    point.x() - node["pos"].x(),
+                    point.y() - node["pos"].y(),
+                ) <= endpoint_tolerance:
+                    node["refs"].append((record_index, endpoint))
+                    return node_index
+            nodes.append({"pos": QPointF(point), "refs": [(record_index, endpoint)]})
+            return len(nodes) - 1
+
+        for guide in guides:
+            points = self.scene.sketch_road_points(guide)
+            if len(points) < 2:
+                continue
+            closed = math.hypot(
+                points[0].x() - points[-1].x(),
+                points[0].y() - points[-1].y(),
+            ) <= endpoint_tolerance
+            if closed:
+                output.append([QPointF(point) for point in points])
+                continue
+            record_index = len(records)
+            records.append({"points": points, "nodes": [None, None]})
+            records[-1]["nodes"][0] = node_for(points[0], record_index, 0)
+            records[-1]["nodes"][1] = node_for(points[-1], record_index, 1)
+
+        visited: set[int] = set()
+        for start_index, record in enumerate(records):
+            if start_index in visited:
+                continue
+            entry_endpoint = 0
+            for candidate in (0, 1):
+                node_id = record["nodes"][candidate]
+                if len(nodes[node_id]["refs"]) != 2:
+                    entry_endpoint = candidate
+                    break
+
+            current_index = start_index
+            current_entry = entry_endpoint
+            current_path: list[QPointF] = []
+            while current_index not in visited:
+                visited.add(current_index)
+                current = records[current_index]
+                oriented = (
+                    [QPointF(point) for point in current["points"]]
+                    if current_entry == 0
+                    else [QPointF(point) for point in reversed(current["points"])]
+                )
+                current_path = (
+                    oriented
+                    if not current_path
+                    else self._join_paths_with_fillet(
+                        current_path,
+                        oriented,
+                        road_width_px,
+                    )
+                )
+                exit_endpoint = 1 - current_entry
+                exit_node = current["nodes"][exit_endpoint]
+                refs = nodes[exit_node]["refs"]
+                if len(refs) != 2:
+                    break
+                next_ref = next(
+                    (ref for ref in refs if ref[0] != current_index),
+                    None,
+                )
+                if next_ref is None or next_ref[0] in visited:
+                    break
+                current_index, current_entry = next_ref
+            if len(current_path) >= 2:
+                output.append(current_path)
+        return output
+
+    def generate_roads_from_sketch(self):
+        selected_guides = [
+            item
+            for item in self.scene.selected_track_items()
+            if isinstance(item, SketchGuideItem)
+        ]
+        guides = selected_guides or [
+            item
+            for item in self.scene.track_items()
+            if isinstance(item, SketchGuideItem)
+        ]
+        if not guides:
+            QMessageBox.information(
+                self,
+                "No Road Guides",
+                "Draw a Line, Arc, or Circle guide first, then generate the road.",
+            )
+            return
+
+        self._begin_undo_transaction("Generate roads from CAD guides")
+        connection_nodes = self.scene.sketch_connection_nodes()
+        for node in connection_nodes:
+            for member in node["members"]:
+                member_guide = member["guide"]
+                if isinstance(member_guide, SketchCircleItem):
+                    member_guide.add_port_scene(node["pos"])
+        stale_ids = {
+            str(guide.generated_road_id)
+            for guide in guides
+            if guide.generated_road_id
+        }
+        for item in list(self.scene.track_items()):
+            if isinstance(item, ContinuousRoadItem) and str(item.object_id) in stale_ids:
+                self.scene.removeItem(item)
+
+        width_m = self._workspace_new_road_width_m()
+        road_paths = self._connected_guide_paths(
+            guides,
+            width_m * PIXELS_PER_METER,
+        )
+        created_roads: list[ContinuousRoadItem] = []
+        for scene_points in road_paths:
+            anchor = scene_points[0]
+            road = ContinuousRoadItem(
+                points_m=self._generated_local_points(scene_points, anchor),
+                width_m=width_m,
+                smooth=False,
+            )
+            road.setPos(anchor)
+            self.scene.addItem(road)
+            created_roads.append(road)
+
+        connector_points = []
+        for node in connection_nodes:
+            members = [
+                member for member in node["members"]
+                if member["guide"] in guides
+            ]
+            if len(members) < 2:
+                continue
+            has_interior_connection = any(
+                1e-6 < float(member["ratio"]) < 1.0 - 1e-6
+                for member in members
+            )
+            has_closed_guide = any(
+                isinstance(member["guide"], SketchCircleItem)
+                for member in members
+            )
+            if len(members) != 2 or has_interior_connection or has_closed_guide:
+                connector_points.append(QPointF(node["pos"]))
+
+        for point in connector_points:
+            half = width_m / 2.0
+            connector = ContinuousRoadItem(
+                points_m=[(-half, 0.0), (half, 0.0)],
+                width_m=width_m,
+                smooth=False,
+                auto_connector=True,
+            )
+            connector.show_edge_a = False
+            connector.show_center_line = False
+            connector.show_edge_b = False
+            connector.show_end_bar = False
+            connector.setPos(point)
+            self.scene.addItem(connector)
+
+        self.scene.clearSelection()
+        for guide in guides:
+            self.scene.removeItem(guide)
+        if len(created_roads) == 1:
+            created_roads[0].setSelected(True)
+
+        self.scene.update()
+        self.update_selection_info()
+        self._commit_undo_transaction()
+        self.statusBar().showMessage(
+            f"Generated {len(created_roads)} continuous road"
+            f"{'s' if len(created_roads) != 1 else ''} with "
+            f"{len(connector_points)} seamless junction patch"
+            f"{'es' if len(connector_points) != 1 else ''}; "
+            f"removed {len(guides)} guide{'s' if len(guides) != 1 else ''}.",
+            5000,
+        )
+
+    @staticmethod
+    def _coordinate_spin(value: float) -> QDoubleSpinBox:
+        spin = QDoubleSpinBox()
+        spin.setRange(-100000.0, 100000.0)
+        spin.setDecimals(3)
+        spin.setSingleStep(0.5)
+        spin.setSuffix(" m")
+        spin.setValue(float(value))
+        return spin
+
+    def _point_position_dialog(
+        self,
+        title: str,
+        scene_point: QPointF,
+    ) -> QPointF | None:
+        x_m, y_m = scene_to_world(scene_point)
+        dialog = QDialog(self)
+        dialog.setWindowTitle(title)
+        form = QFormLayout(dialog)
+        x_spin = self._coordinate_spin(x_m)
+        y_spin = self._coordinate_spin(y_m)
+        form.addRow("X", x_spin)
+        form.addRow("Y", y_spin)
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok
+            | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        form.addRow(buttons)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return None
+        return world_to_scene(x_spin.value(), y_spin.value())
+
+    def edit_sketch_control_point(
+        self,
+        guide: SketchGuideItem,
+        index: int,
+        role: str,
+    ):
+        if guide.scene() is not self.scene:
+            return
+        if isinstance(guide, SketchCircleItem) and role == "radius":
+            dialog = QDialog(self)
+            dialog.setWindowTitle("Set Circle Radius")
+            form = QFormLayout(dialog)
+            radius_spin = self._coordinate_spin(guide.radius_m)
+            radius_spin.setRange(1.0, 100000.0)
+            form.addRow("Radius", radius_spin)
+            buttons = QDialogButtonBox(
+                QDialogButtonBox.StandardButton.Ok
+                | QDialogButtonBox.StandardButton.Cancel
+            )
+            buttons.accepted.connect(dialog.accept)
+            buttons.rejected.connect(dialog.reject)
+            form.addRow(buttons)
+            if dialog.exec() != QDialog.DialogCode.Accepted:
+                return
+            self._begin_undo_transaction("Set circle radius")
+            guide.prepareGeometryChange()
+            guide.radius_m = radius_spin.value()
+            guide._sync_handle_positions([
+                (QPointF(guide.radius_px, 0.0), "radius")
+            ])
+            guide._geometry_changed()
+            self._commit_undo_transaction()
+            return
+
+        points = getattr(guide, "points_px", [])
+        if not (0 <= index < len(points)):
+            return
+        target_scene = self._point_position_dialog(
+            "Set Guide Point Position",
+            guide.mapToScene(points[index]),
+        )
+        if target_scene is None:
+            return
+        local = guide.mapFromScene(target_scene)
+        if isinstance(guide, SketchLineItem):
+            other = guide.points_px[1 - index]
+            if guide.axis_constraint == "horizontal":
+                local.setY(other.y())
+            elif guide.axis_constraint == "vertical":
+                local.setX(other.x())
+        self._begin_undo_transaction("Set guide point position")
+        guide.handle_moved(index, role, local)
+        definitions = (
+            [(guide.points_px[0], "endpoint"), (guide.points_px[1], "endpoint")]
+            if isinstance(guide, SketchLineItem)
+            else [
+                (guide.points_px[0], "endpoint"),
+                (guide.points_px[1], "control"),
+                (guide.points_px[2], "endpoint"),
+            ]
+        )
+        guide._sync_handle_positions(definitions)
+        self.register_sketch_circle_ports(guide)
+        self._commit_undo_transaction()
+
+    def set_sketch_line_constraint(
+        self,
+        guide: SketchLineItem,
+        constraint: str,
+        moved_index: int,
+    ):
+        if guide.scene() is not self.scene or constraint not in {"", "horizontal", "vertical"}:
+            return
+        moved_index = 0 if int(moved_index) == 0 else 1
+        other_index = 1 - moved_index
+        self._begin_undo_transaction("Change line constraint")
+        guide.prepareGeometryChange()
+        guide.axis_constraint = constraint
+        if constraint == "horizontal":
+            guide.points_px[moved_index].setY(guide.points_px[other_index].y())
+        elif constraint == "vertical":
+            guide.points_px[moved_index].setX(guide.points_px[other_index].x())
+        guide._sync_handle_positions([
+            (guide.points_px[0], "endpoint"),
+            (guide.points_px[1], "endpoint"),
+        ])
+        guide._geometry_changed()
+        self._commit_undo_transaction()
+
+    def edit_continuous_road_control_point(
+        self,
+        road: ContinuousRoadItem,
+        index: int,
+    ):
+        points = road.local_points_px()
+        if road.scene() is not self.scene or not (0 <= index < len(points)):
+            return
+        target_scene = self._point_position_dialog(
+            "Set Road Point Position",
+            road.mapToScene(points[index]),
+        )
+        if target_scene is None:
+            return
+        local = road.mapFromScene(target_scene)
+        values = list(road.points_m)
+        values[index] = (
+            local.x() / PIXELS_PER_METER,
+            -local.y() / PIXELS_PER_METER,
+        )
+        self._begin_undo_transaction("Set road point position")
+        road.set_points_m(values)
+        self.update_selection_info()
+        self._commit_undo_transaction()
+
+    def insert_continuous_road_control_point(
+        self,
+        road: ContinuousRoadItem,
+        index: int,
+        *,
+        before: bool,
+    ):
+        points = list(road.points_m)
+        neighbor = index - 1 if before else index + 1
+        if road.scene() is not self.scene or not (
+            0 <= index < len(points) and 0 <= neighbor < len(points)
+        ):
+            return
+        midpoint = (
+            (points[index][0] + points[neighbor][0]) / 2.0,
+            (points[index][1] + points[neighbor][1]) / 2.0,
+        )
+        insertion = index if before else index + 1
+        self._begin_undo_transaction("Insert continuous-road point")
+        points.insert(insertion, midpoint)
+        road.set_points_m(points)
+        self.update_selection_info()
+        self._commit_undo_transaction()
+
+    def delete_continuous_road_control_point(
+        self,
+        road: ContinuousRoadItem,
+        index: int,
+    ):
+        if road.scene() is not self.scene or len(road.points_m) <= 2:
+            return
+        self._begin_undo_transaction("Delete continuous-road point")
+        road.remove_node(index)
+        self.update_selection_info()
+        self._commit_undo_transaction()
 
     def add_crosswalk(self):
         self._add_item_at_view_center(CrosswalkItem())
@@ -3454,6 +4268,10 @@ class TrackEditorWindow(QMainWindow):
                 self.prop_radius.setValue(item.radius_m)
                 self.prop_width.setValue(item.width_m)
 
+            elif isinstance(item, SketchCircleItem):
+                self._set_property_row_visible(self.prop_radius, True)
+                self.prop_radius.setValue(item.radius_m)
+
             elif isinstance(item, (TJunctionItem, CrossIntersectionItem)):
                 self._set_property_row_visible(self.prop_arm, True)
                 self._set_property_row_visible(self.prop_width, True)
@@ -3472,12 +4290,34 @@ class TrackEditorWindow(QMainWindow):
             return
         self.continuous_road_help.setText(
             f"{len(road.points_m)} nodes · {road.total_length_m:.1f} m. "
-            "Drag cyan nodes on the canvas; double-click a node to remove it."
+            "Drag cyan nodes on the canvas. Right-click a node for exact "
+            "position, insert, and delete controls."
         )
         self.continuous_road_smooth.blockSignals(True)
         self.continuous_road_smooth.setChecked(road.smooth)
         self.continuous_road_smooth.blockSignals(False)
         self.continuous_remove_node_button.setEnabled(len(road.points_m) > 2)
+
+    def _refresh_sketch_guide_editor(self, item: TrackItem | None):
+        guide = item if isinstance(item, SketchGuideItem) else None
+        self.sketch_guide_group.setVisible(guide is not None)
+        if guide is None:
+            return
+        intersections = sum(
+            1
+            for node in self.scene.sketch_connection_nodes()
+            if any(member["guide"] is guide for member in node["members"])
+        )
+        connections = len(guide.connection_points_local()) + intersections
+        generated = "Yes" if guide.generated_road_id else "Not yet"
+        self.sketch_guide_help.setText(
+            f"Logical connections: {connections} "
+            f"({intersections} crossing{'s' if intersections != 1 else ''})\n"
+            f"Generated road: {generated}\n"
+            "Drag the orange handles on the canvas to resize or reshape this "
+            "guide. Right-click a handle for precise controls. Generation "
+            "consumes the guide and leaves an editable continuous road."
+        )
 
     def apply_selected_continuous_road_smoothing(self, checked: bool):
         road = self._single_selected_item()
@@ -3980,6 +4820,7 @@ class TrackEditorWindow(QMainWindow):
             return
         if self.continuous_road_drawing:
             self.finish_continuous_road_drawing()
+        self.cancel_sketch_tool()
         self.path_edit_actor_id = str(item.object_id)
         self.path_draw_button.setText("Click map... (right-click ends)")
         self.view.setCursor(Qt.CursorShape.CrossCursor)
@@ -4572,13 +5413,20 @@ class TrackEditorWindow(QMainWindow):
         if self._property_refreshing:
             return
         item = self._single_selected_item()
-        if not isinstance(item, (Curve90RoadItem, Curve45RoadItem)):
+        if not isinstance(item, (Curve90RoadItem, Curve45RoadItem, SketchCircleItem)):
             return
 
         self._begin_undo_transaction("Change curve radius")
         item.prepareGeometryChange()
-        minimum_radius = item.width_m / 2.0 + 0.5
+        minimum_radius = (
+            item.width_m / 2.0 + 0.5
+            if isinstance(item, (Curve90RoadItem, Curve45RoadItem))
+            else 1.0
+        )
         item.radius_m = max(minimum_radius, float(value))
+        if isinstance(item, SketchCircleItem):
+            item._sync_handle_positions([(QPointF(item.radius_px, 0.0), "radius")])
+            self.sync_generated_road_from_guide(item)
         self._geometry_property_changed(item)
         self._commit_undo_transaction()
 
@@ -4607,6 +5455,7 @@ class TrackEditorWindow(QMainWindow):
             self.selection_label.setText(summary)
             self._refresh_property_editor(selected[0])
             self._refresh_continuous_road_editor(selected[0])
+            self._refresh_sketch_guide_editor(selected[0])
             self._refresh_camera_editor(selected[0])
             self._refresh_actor_editor(selected[0])
             self._refresh_experiment_editor(selected[0])
@@ -4617,6 +5466,7 @@ class TrackEditorWindow(QMainWindow):
             self.selection_label.setText(f"{len(selected)} objects selected")
             self._refresh_property_editor(None)
             self._refresh_continuous_road_editor(None)
+            self._refresh_sketch_guide_editor(None)
             self._refresh_camera_editor(None)
             self._refresh_actor_editor(None)
             self._refresh_experiment_editor(None)
@@ -4627,6 +5477,7 @@ class TrackEditorWindow(QMainWindow):
             self.selection_label.setText("None")
             self._refresh_property_editor(None)
             self._refresh_continuous_road_editor(None)
+            self._refresh_sketch_guide_editor(None)
             self._refresh_camera_editor(None)
             self._refresh_actor_editor(None)
             self._refresh_experiment_editor(None)
@@ -4646,6 +5497,7 @@ class TrackEditorWindow(QMainWindow):
     # ------------------------------------------------------------
 
     def export_qlabs_setup(self):
+        self.cancel_sketch_tool()
         if self.continuous_road_drawing:
             self.finish_continuous_road_drawing()
         qcar_starts = [
@@ -4760,6 +5612,7 @@ class TrackEditorWindow(QMainWindow):
         }
 
     def new_track(self):
+        self.cancel_sketch_tool()
         self.cancel_continuous_road_drawing()
         self.scene.clear()
         self.project_scale_combo.setCurrentIndex(0)
@@ -4776,6 +5629,7 @@ class TrackEditorWindow(QMainWindow):
         self.update_selection_info()
 
     def save_track(self, save_as: bool = False):
+        self.cancel_sketch_tool()
         if self.continuous_road_drawing:
             self.finish_continuous_road_drawing()
         path = self.current_file
@@ -4813,6 +5667,7 @@ class TrackEditorWindow(QMainWindow):
         if not file_name:
             return
 
+        self.cancel_sketch_tool()
         self.cancel_continuous_road_drawing()
 
         path = Path(file_name)
