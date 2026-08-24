@@ -124,6 +124,17 @@ class TrackItem(QGraphicsItem):
                 QPointF(tip.x() + wing, tip.y() - depth),
             ])
             label_rect = rect.adjusted(3, rect.height() * 0.55, -3, -2)
+        elif axis == "-x":
+            tip = QPointF(rect.left() + 2.0, 0.0)
+            start = QPointF(max(0.0, rect.right() - rect.width() * 0.30), 0.0)
+            wing = max(4.0, min(8.0, rect.height() * 0.12))
+            depth = max(6.0, min(11.0, rect.width() * 0.20))
+            head = QPolygonF([
+                tip,
+                QPointF(tip.x() + depth, tip.y() - wing),
+                QPointF(tip.x() + depth, tip.y() + wing),
+            ])
+            label_rect = rect.adjusted(2, 2, -rect.width() * 0.48, -2)
         else:
             tip = QPointF(rect.right() - 2.0, 0.0)
             start = QPointF(min(0.0, rect.left() + rect.width() * 0.30), 0.0)

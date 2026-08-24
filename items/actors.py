@@ -166,6 +166,7 @@ class ResizableSceneActorItem(SceneActorItem):
 class TrafficLightItem(SceneActorItem):
     TYPE_NAME = "traffic_light"
     DISPLAY_NAME = "Traffic Light"
+    QLABS_ORIENTATION_AXIS = "y"
 
     def __init__(self, object_id: str | None = None):
         super().__init__(object_id=object_id)
@@ -194,7 +195,14 @@ class TrafficLightItem(SceneActorItem):
         painter.setBrush(colors.get(self.traffic_color, colors["red"]))
         painter.drawEllipse(QPointF(0, 0), 7, 7)
 
-        self.draw_facing_indicator(painter, rect, axis="x")
+        # Indicate the direction seen by approaching traffic, matching the
+        # sign FRONT arrows. The native boom itself extends along local -X,
+        # while its signal face looks along local +Y in editor coordinates.
+        self.draw_facing_indicator(
+            painter,
+            rect,
+            axis=self.QLABS_ORIENTATION_AXIS,
+        )
 
         if self.isSelected():
             pen = QPen(SELECTION_COLOR, SELECTION_LINE_WIDTH_PX)
@@ -287,6 +295,7 @@ class CatalogTrafficSignItem(SceneActorItem):
 
     TYPE_NAME = "traffic_sign_catalog"
     DISPLAY_NAME = "Traffic Sign"
+    QLABS_ORIENTATION_AXIS = "-x"
 
     def __init__(self, object_id: str | None = None):
         super().__init__(object_id=object_id)
@@ -351,8 +360,13 @@ class CatalogTrafficSignItem(SceneActorItem):
             painter.setPen(QPen(QColor(210, 45, 45), 3))
             painter.drawLine(rect.bottomLeft(), rect.topRight())
 
-        # Validated sign faces local +X in the QLabs exporter.
-        self.draw_facing_indicator(painter, rect, axis="x")
+        # The custom BasicShape sign face is built toward local -X by the
+        # exporter (_asg_world uses -tangent for its visible/front surface).
+        self.draw_facing_indicator(
+            painter,
+            rect,
+            axis=self.QLABS_ORIENTATION_AXIS,
+        )
 
         if self.isSelected():
             pen = QPen(SELECTION_COLOR, SELECTION_LINE_WIDTH_PX)
