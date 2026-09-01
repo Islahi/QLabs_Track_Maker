@@ -3717,11 +3717,9 @@ class TrackEditorWindow(QMainWindow):
         if mapped_workspace:
             # Reference coordinates are already native QLabs metres, so a
             # second project scale would make actor placement misleading.
-            if self.project_scale_combo.currentIndex() != 0:
-                self.project_scale_combo.setCurrentIndex(0)
-
-            self.project_scale_combo.setEnabled(False)
-            self.custom_scale_denominator.setEnabled(False)
+            
+            self.project_scale_combo.setEnabled(True)
+            self.custom_scale_denominator.setEnabled(True)
 
             self.scale_help_label.setText(
                 f"{label} reference coordinates are native QLabs meters. "
