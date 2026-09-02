@@ -3,8 +3,9 @@
 Run while Townscape or Townscape Lite is open. The script does not clear other
 actors. Press Enter to remove only the markers created by this script.
 
-A new top-down screenshot containing these markers can be used to replace the
-current two-anchor parking-bay calibration with an independently verified fit.
+The packaged Townscape v2.4 reference was calibrated from these four marker
+locations. Run this utility again whenever you want to independently revalidate
+the current QLabs workspace/camera alignment after a simulator update.
 """
 
 from qvl.qlabs import QuanserInteractiveLabs

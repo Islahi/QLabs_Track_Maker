@@ -1,3 +1,7 @@
+## Cover X/Y customization — v2.7
+
+The optional **Cover / Workspace box** can now be customized in all three axes. In addition to **Top Z** and **Bottom Z**, the toolbar exposes **Center X**, **Center Y**, **Size X**, and **Size Y**. Workspace profiles still provide convenient defaults, but the cover can be translated or resized independently before export. Existing project JSON files remain compatible; missing X/Y overrides fall back to the selected workspace profile.
+
 # QLabs Track Editor
 
 A desktop visual editor for designing road networks, placing actors and scenery, and exporting runnable Python setup scripts for **Quanser Interactive Labs (QLabs)**.
@@ -91,7 +95,7 @@ python main.py
 ## Typical workflow
 
 1. Open the **Setup** tab and select the project scale, canvas size, and target QLabs workspace.
-2. Adjust **Spline Z** if the generated road surface must sit above native workspace geometry.
+2. Adjust **Spline Z** if the generated road surface must sit above native workspace geometry. The current native-workspace defaults are **Plane 0.20 m**, **Cityscape/Cityscape Lite 0.50 m**, **Townscape/Townscape Lite 0.50 m**, and **Open Road 1.20 m**. These are editor/export defaults and can be tuned for your QLabs installation.
 3. Use **Build → Sketch** to draw a **Line** (two clicks), **Arc** (start, point on arc, end), or **Circle** (center, radius). The selected sketch tool remains active after each shape so connected lines can be drawn without repeatedly choosing it. Endpoints snap to compatible guide endpoints, circle perimeters, and the nearest point along an existing road centerline. Green nodes show actual guide intersections. Use **Trim** and click the unwanted section between crossings to remove excess construction geometry or turn a crossed circle into an arc. Select a guide and drag its orange handles to resize it, or right-click a handle for precise editing. Click **Generate Road** to merge degree-two connections with automatic tangent fillets and remove the construction guides. The resulting continuous roads remain editable with cyan nodes.
    The original continuous-road tool remains available: left-click nodes; press **Enter** or right-click to finish, **Backspace** to remove the latest node, or **Esc** to cancel. Select a completed continuous road to drag its cyan nodes, insert/remove nodes, reverse its direction, or enable smooth corners.
 4. Use **Scenery** to place objects manually, fill the entire editable canvas, or activate the **Environment Brush** and drag one or more rectangular fill areas. The brush stays active until right-click or `Esc`. Select a scenery object and drag its cyan corner handle to resize it uniformly; the exact scale remains available in the inspector.
@@ -129,7 +133,7 @@ Editor projects are JSON files containing:
 - project scale and canvas dimensions;
 - selected workspace and spline height;
 - environment weather and time settings;
-- optional workspace-cover configuration;
+- optional workspace-cover configuration with editable Center X/Y, Size X/Y, Top Z, and Bottom Z;
 - scenery-fill settings; and
 - serialized roads, actors, triggers, paths, and scenery objects.
 
@@ -162,6 +166,17 @@ Cityscape/Cityscape Lite and Townscape/Townscape Lite use calibrated visual refe
 - Road Parking 2: `(-18.078, -2.879)`
 
 The four-marker Townscape fit produced an RMS residual of **0.0168 m** and a maximum residual of **0.0240 m** at those calibration points. These values measure agreement at the markers; they do not guarantee survey-grade accuracy across every road edge. Revalidate the references after major QLabs workspace, asset, or camera changes.
+
+### Native workspace track-base defaults
+
+| Workspace | Default Spline / Track Base Z |
+| --- | ---: |
+| Plane / Custom | 0.20 m |
+| Cityscape / Cityscape Lite | 0.50 m |
+| Townscape / Townscape Lite | 0.50 m |
+| Open Road | 1.20 m |
+
+`TRACK_BASE_Z` in an exported setup is derived from the selected workspace's saved **Spline Z** (or from the workspace-cover **Top Z** when the cover is enabled). The QCar is intentionally spawned above that surface (`TRACK_BASE_Z + 2.0 * scale`) and allowed to settle, so the table above is the **track base**, not the literal initial QCar center Z.
 
 ## Known considerations
 

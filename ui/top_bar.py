@@ -290,8 +290,9 @@ class TopControlBar(QWidget):
         self.workspace_mode_combo.addItem("Studio", WORKSPACE_STUDIO)
         self.workspace_mode_combo.addItem("Warehouse", WORKSPACE_WAREHOUSE)
         self.workspace_mode_combo.setToolTip(
-            "QLabs workspace used by the exported setup. Open Road, Cityscape, "
-            "and Townscape have locked 2-D editor reference overlays."
+            "QLabs workspace used by the exported setup. Open Road, Cityscape/"
+            "Cityscape Lite, and Townscape/Townscape Lite have locked 2-D editor "
+            "reference overlays."
         )
         self.workspace_mode_combo.currentIndexChanged.connect(
             self.window.workspace_mode_changed
@@ -307,8 +308,9 @@ class TopControlBar(QWidget):
             workspace_mode_default_spline_z(WORKSPACE_CUSTOM)
         )
         self.workspace_spline_z_spin.setToolTip(
-            "Native-workspace Z height for exported spline roads and guide lines. "
-            "Spline roads default to 1.20 m so they remain above native road surfaces. "
+            "Native-workspace track-base Z for exported spline roads, markings, guides, "
+            "and roadside actors. Defaults are workspace-specific: Plane 0.20 m, "
+            "Cityscape/Townscape (including Lite) 0.50 m, and Open Road 1.20 m. "
             "When Workspace box is enabled, the box Top Z is used instead."
         )
         self.workspace_spline_z_spin.valueChanged.connect(
@@ -735,12 +737,77 @@ class TopControlBar(QWidget):
         )
         row.addWidget(self.workspace_platform_profile_combo)
 
+        default_profile = WORKSPACE_PLATFORM_PROFILES[DEFAULT_WORKSPACE_PLATFORM_PROFILE]
+
+        row.addWidget(QLabel("Center X"))
+        self.workspace_platform_center_x_spin = self.window._make_spinbox(
+            -100000.0, 100000.0, 1.0, 2, " m"
+        )
+        self.workspace_platform_center_x_spin.setFixedWidth(108)
+        self.workspace_platform_center_x_spin.setValue(
+            float(default_profile["center_x_m"])
+        )
+        self.workspace_platform_center_x_spin.setToolTip(
+            "QLabs world X coordinate of the center of the cover box"
+        )
+        self.workspace_platform_center_x_spin.valueChanged.connect(
+            self.window.workspace_platform_settings_changed
+        )
+        row.addWidget(self.workspace_platform_center_x_spin)
+
+        row.addWidget(QLabel("Center Y"))
+        self.workspace_platform_center_y_spin = self.window._make_spinbox(
+            -100000.0, 100000.0, 1.0, 2, " m"
+        )
+        self.workspace_platform_center_y_spin.setFixedWidth(108)
+        self.workspace_platform_center_y_spin.setValue(
+            float(default_profile["center_y_m"])
+        )
+        self.workspace_platform_center_y_spin.setToolTip(
+            "QLabs world Y coordinate of the center of the cover box"
+        )
+        self.workspace_platform_center_y_spin.valueChanged.connect(
+            self.window.workspace_platform_settings_changed
+        )
+        row.addWidget(self.workspace_platform_center_y_spin)
+
+        row.addWidget(QLabel("Size X"))
+        self.workspace_platform_size_x_spin = self.window._make_spinbox(
+            0.1, 100000.0, 1.0, 1, " m"
+        )
+        self.workspace_platform_size_x_spin.setFixedWidth(108)
+        self.workspace_platform_size_x_spin.setValue(
+            float(default_profile["size_x_m"])
+        )
+        self.workspace_platform_size_x_spin.setToolTip(
+            "Total cover-box size along the QLabs X axis"
+        )
+        self.workspace_platform_size_x_spin.valueChanged.connect(
+            self.window.workspace_platform_settings_changed
+        )
+        row.addWidget(self.workspace_platform_size_x_spin)
+
+        row.addWidget(QLabel("Size Y"))
+        self.workspace_platform_size_y_spin = self.window._make_spinbox(
+            0.1, 100000.0, 1.0, 1, " m"
+        )
+        self.workspace_platform_size_y_spin.setFixedWidth(108)
+        self.workspace_platform_size_y_spin.setValue(
+            float(default_profile["size_y_m"])
+        )
+        self.workspace_platform_size_y_spin.setToolTip(
+            "Total cover-box size along the QLabs Y axis"
+        )
+        self.workspace_platform_size_y_spin.valueChanged.connect(
+            self.window.workspace_platform_settings_changed
+        )
+        row.addWidget(self.workspace_platform_size_y_spin)
+
         row.addWidget(QLabel("Top Z"))
         self.workspace_platform_top_z_spin = self.window._make_spinbox(
             0.05, 1000.0, 5.0, 1, " m"
         )
         self.workspace_platform_top_z_spin.setFixedWidth(124)
-        default_profile = WORKSPACE_PLATFORM_PROFILES[DEFAULT_WORKSPACE_PLATFORM_PROFILE]
         self.workspace_platform_top_z_spin.setValue(
             float(default_profile["default_top_z_m"])
         )
@@ -823,6 +890,10 @@ class TopControlBar(QWidget):
             "building_road_band_spin",
             "workspace_platform_enabled_checkbox",
             "workspace_platform_profile_combo",
+            "workspace_platform_center_x_spin",
+            "workspace_platform_center_y_spin",
+            "workspace_platform_size_x_spin",
+            "workspace_platform_size_y_spin",
             "workspace_platform_top_z_spin",
             "workspace_platform_bottom_z_spin",
             "fit_workspace_platform_button",

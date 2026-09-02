@@ -17,7 +17,8 @@ WORKSPACE_PLATFORM_PROFILES = {
         "center_y_m": 0.0,
         "default_bottom_z_m": -5.0,
         "default_top_z_m": 100.0,
-        "default_spline_z_m": 0.0,
+        # Tested editor track-base default for the native Cityscape surface.
+        "default_spline_z_m": 0.50,
         "default_road_width_m": DEFAULT_ROAD_WIDTH_M,
         "environment_support": "confirmed",
         "size_note": "Approx. 500 m × 500 m; origin centered in the world.",
@@ -31,7 +32,8 @@ WORKSPACE_PLATFORM_PROFILES = {
         "center_y_m": 0.0,
         "default_bottom_z_m": -5.0,
         "default_top_z_m": 100.0,
-        "default_spline_z_m": 0.0,
+        # Shares the Cityscape map and native-surface track-base default.
+        "default_spline_z_m": 0.50,
         "default_road_width_m": DEFAULT_ROAD_WIDTH_M,
         "environment_support": "unknown",
         "size_note": "500 m × 500 m; origin centered in the world.",
@@ -45,7 +47,8 @@ WORKSPACE_PLATFORM_PROFILES = {
         "center_y_m": 0.0,
         "default_bottom_z_m": -5.0,
         "default_top_z_m": 100.0,
-        "default_spline_z_m": 0.0,
+        # Tested editor track-base default for the native Townscape surface.
+        "default_spline_z_m": 0.50,
         "default_road_width_m": DEFAULT_ROAD_WIDTH_M,
         "environment_support": "unknown",
         "size_note": "Approx. 500 m × 500 m; origin centered in the world.",
@@ -59,7 +62,8 @@ WORKSPACE_PLATFORM_PROFILES = {
         "center_y_m": 0.0,
         "default_bottom_z_m": -5.0,
         "default_top_z_m": 100.0,
-        "default_spline_z_m": 0.0,
+        # Shares the Townscape map and native-surface track-base default.
+        "default_spline_z_m": 0.50,
         "default_road_width_m": DEFAULT_ROAD_WIDTH_M,
         "environment_support": "unknown",
         "size_note": "Approx. 500 m × 500 m; origin centered in the world.",
@@ -93,7 +97,8 @@ WORKSPACE_PLATFORM_PROFILES = {
         "center_y_m": 0.0,
         "default_bottom_z_m": -2.0,
         "default_top_z_m": 1.0,
-        "default_spline_z_m": 0.0,
+        # Small positive offset keeps custom roads visibly above the Plane.
+        "default_spline_z_m": 0.20,
         "default_road_width_m": DEFAULT_ROAD_WIDTH_M,
         "environment_support": "unknown",
         "size_note": "20,000 m × 20,000 m; origin centered in the world.",

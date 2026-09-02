@@ -76,11 +76,12 @@ WORKSPACE_SETTINGS = TRACK_DATA.get("workspace", {}) or {}
 PLATFORM_SETTINGS = TRACK_DATA.get("workspace_platform", {}) or {}
 PLATFORM_ENABLED = bool(PLATFORM_SETTINGS.get("enabled", False))
 
-# Native workspaces can have road meshes slightly above Z=0.  The editor
-# stores a per-workspace spline Z (1.20 m by default) so
-# custom spline roads, markings, guides, and their roadside actors do not end
-# up hidden below the native geometry.  A workspace-cover box overrides this
-# value because its Top Z becomes the custom track surface instead.
+# Native workspaces can have surfaces/road meshes at different effective Z
+# heights.  The editor stores a per-workspace track-base (spline) Z so custom
+# roads, markings, guides, and roadside actors are placed consistently.  The
+# current defaults are Plane=0.20 m, Cityscape/Townscape(+Lite)=0.50 m, and
+# Open Road=1.20 m.  A workspace-cover box overrides this value because its
+# Top Z becomes the custom track surface instead.
 NATIVE_SPLINE_Z = float(WORKSPACE_SETTINGS.get("spline_z_m", 1.20))
 TRACK_BASE_Z = (
     float(PLATFORM_SETTINGS.get("top_z_m", 0.0))
@@ -1294,9 +1295,10 @@ def normalized_rgb(rgb, fallback=(145, 155, 170)):
 def spawn_workspace_platform(qlabs):
     """Cover the selected native workspace with one static driveable box.
 
-    The box footprint comes from the documented workspace world dimensions
-    embedded by the editor.  Its top surface becomes TRACK_BASE_Z, so every
-    exported road and actor is automatically placed on top of it.
+    The selected workspace profile supplies default X/Y footprint and center
+    values, but the editor can override Center X, Center Y, Size X and Size Y.
+    The top surface becomes TRACK_BASE_Z, so every exported road and actor is
+    automatically placed on top of it.
     """
     settings = PLATFORM_SETTINGS
     if not bool(settings.get("enabled", False)):
@@ -1337,7 +1339,9 @@ def spawn_workspace_platform(qlabs):
     print(
         "Workspace cover platform:",
         settings.get("workspace_label", settings.get("profile", "workspace")),
-        f"{size_x:g}m x {size_y:g}m, top Z={top_z:g}m",
+        f"{size_x:g}m x {size_y:g}m",
+        f"center=({float(settings.get('center_x_m', 0.0)):g}, {float(settings.get('center_y_m', 0.0)):g})m",
+        f"top Z={top_z:g}m",
     )
     return platform
 

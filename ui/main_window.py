@@ -222,6 +222,10 @@ class TrackEditorWindow(QMainWindow):
         )
         self.workspace_platform_enabled = False
         self.workspace_platform_profile = DEFAULT_WORKSPACE_PLATFORM_PROFILE
+        self.workspace_platform_center_x_m = float(default_platform.get("center_x_m", 0.0))
+        self.workspace_platform_center_y_m = float(default_platform.get("center_y_m", 0.0))
+        self.workspace_platform_size_x_m = float(default_platform["size_x_m"])
+        self.workspace_platform_size_y_m = float(default_platform["size_y_m"])
         self.workspace_platform_top_z_m = float(
             default_platform["default_top_z_m"]
         )
@@ -3155,10 +3159,10 @@ class TrackEditorWindow(QMainWindow):
             "profile": self.workspace_platform_profile,
             "workspace_label": str(profile["label"]),
             "workspace_module": str(profile["module"]),
-            "size_x_m": float(profile["size_x_m"]),
-            "size_y_m": float(profile["size_y_m"]),
-            "center_x_m": float(profile.get("center_x_m", 0.0)),
-            "center_y_m": float(profile.get("center_y_m", 0.0)),
+            "size_x_m": max(0.1, float(self.workspace_platform_size_x_m)),
+            "size_y_m": max(0.1, float(self.workspace_platform_size_y_m)),
+            "center_x_m": float(self.workspace_platform_center_x_m),
+            "center_y_m": float(self.workspace_platform_center_y_m),
             "bottom_z_m": bottom_z,
             "top_z_m": top_z,
             "rgb": list(self.workspace_platform_color_rgb),
@@ -3183,11 +3187,14 @@ class TrackEditorWindow(QMainWindow):
             support_text = "indoor workspace"
         else:
             support_text = "weather support varies by QLabs workspace/release"
+        cx = data["center_x_m"]
+        cy = data["center_y_m"]
         self.workspace_platform_info_label.setText(
-            f"{size_text}  •  {support_text}"
+            f"{size_text}  •  center {cx:g}, {cy:g} m  •  {support_text}"
         )
         self.workspace_platform_info_label.setToolTip(
             data.get("size_note", "")
+            + "\nCenter X/Y and Size X/Y are editable cover geometry; the profile only supplies defaults."
             + "\nTop Z is an editor-selected cover height, not a published workspace height."
         )
 
@@ -3200,11 +3207,27 @@ class TrackEditorWindow(QMainWindow):
         profile = workspace_platform_profile(key)
         self.workspace_platform_profile = key
 
-        # A profile change deliberately loads a sensible starting height.  The
-        # user can immediately tune Top Z/Bottom Z for their QLabs release.
-        self.workspace_platform_top_z_spin.blockSignals(True)
-        self.workspace_platform_bottom_z_spin.blockSignals(True)
+        # A profile change deliberately loads a sensible starting footprint and
+        # height. The user can immediately tune X/Y position, X/Y size and Z.
+        widgets = (
+            self.workspace_platform_center_x_spin,
+            self.workspace_platform_center_y_spin,
+            self.workspace_platform_size_x_spin,
+            self.workspace_platform_size_y_spin,
+            self.workspace_platform_top_z_spin,
+            self.workspace_platform_bottom_z_spin,
+        )
+        for widget in widgets:
+            widget.blockSignals(True)
         try:
+            self.workspace_platform_center_x_spin.setValue(
+                float(profile.get("center_x_m", 0.0))
+            )
+            self.workspace_platform_center_y_spin.setValue(
+                float(profile.get("center_y_m", 0.0))
+            )
+            self.workspace_platform_size_x_spin.setValue(float(profile["size_x_m"]))
+            self.workspace_platform_size_y_spin.setValue(float(profile["size_y_m"]))
             self.workspace_platform_top_z_spin.setValue(
                 float(profile["default_top_z_m"])
             )
@@ -3212,9 +3235,13 @@ class TrackEditorWindow(QMainWindow):
                 float(profile["default_bottom_z_m"])
             )
         finally:
-            self.workspace_platform_top_z_spin.blockSignals(False)
-            self.workspace_platform_bottom_z_spin.blockSignals(False)
+            for widget in widgets:
+                widget.blockSignals(False)
 
+        self.workspace_platform_center_x_m = float(profile.get("center_x_m", 0.0))
+        self.workspace_platform_center_y_m = float(profile.get("center_y_m", 0.0))
+        self.workspace_platform_size_x_m = float(profile["size_x_m"])
+        self.workspace_platform_size_y_m = float(profile["size_y_m"])
         self.workspace_platform_top_z_m = float(profile["default_top_z_m"])
         self.workspace_platform_bottom_z_m = float(profile["default_bottom_z_m"])
         self._update_workspace_platform_info()
@@ -3229,6 +3256,18 @@ class TrackEditorWindow(QMainWindow):
         self.workspace_platform_profile = str(
             self.workspace_platform_profile_combo.currentData()
             or DEFAULT_WORKSPACE_PLATFORM_PROFILE
+        )
+        self.workspace_platform_center_x_m = float(
+            self.workspace_platform_center_x_spin.value()
+        )
+        self.workspace_platform_center_y_m = float(
+            self.workspace_platform_center_y_spin.value()
+        )
+        self.workspace_platform_size_x_m = max(
+            0.1, float(self.workspace_platform_size_x_spin.value())
+        )
+        self.workspace_platform_size_y_m = max(
+            0.1, float(self.workspace_platform_size_y_spin.value())
         )
         self.workspace_platform_top_z_m = float(
             self.workspace_platform_top_z_spin.value()
@@ -3262,6 +3301,20 @@ class TrackEditorWindow(QMainWindow):
 
         self.workspace_platform_enabled = bool(data.get("enabled", False))
         self.workspace_platform_profile = key
+        # Backward compatible: older projects do not contain these overrides,
+        # so fall back to the selected workspace profile geometry.
+        self.workspace_platform_center_x_m = float(
+            data.get("center_x_m", profile.get("center_x_m", 0.0))
+        )
+        self.workspace_platform_center_y_m = float(
+            data.get("center_y_m", profile.get("center_y_m", 0.0))
+        )
+        self.workspace_platform_size_x_m = max(
+            0.1, float(data.get("size_x_m", profile["size_x_m"]))
+        )
+        self.workspace_platform_size_y_m = max(
+            0.1, float(data.get("size_y_m", profile["size_y_m"]))
+        )
         self.workspace_platform_top_z_m = float(
             data.get("top_z_m", profile["default_top_z_m"])
         )
@@ -3281,6 +3334,10 @@ class TrackEditorWindow(QMainWindow):
         widgets = (
             self.workspace_platform_enabled_checkbox,
             self.workspace_platform_profile_combo,
+            self.workspace_platform_center_x_spin,
+            self.workspace_platform_center_y_spin,
+            self.workspace_platform_size_x_spin,
+            self.workspace_platform_size_y_spin,
             self.workspace_platform_top_z_spin,
             self.workspace_platform_bottom_z_spin,
         )
@@ -3292,6 +3349,18 @@ class TrackEditorWindow(QMainWindow):
             )
             index = self.workspace_platform_profile_combo.findData(key)
             self.workspace_platform_profile_combo.setCurrentIndex(max(0, index))
+            self.workspace_platform_center_x_spin.setValue(
+                self.workspace_platform_center_x_m
+            )
+            self.workspace_platform_center_y_spin.setValue(
+                self.workspace_platform_center_y_m
+            )
+            self.workspace_platform_size_x_spin.setValue(
+                self.workspace_platform_size_x_m
+            )
+            self.workspace_platform_size_y_spin.setValue(
+                self.workspace_platform_size_y_m
+            )
             self.workspace_platform_top_z_spin.setValue(
                 self.workspace_platform_top_z_m
             )
@@ -3447,11 +3516,19 @@ class TrackEditorWindow(QMainWindow):
 
         profile = workspace_platform_profile(profile_key)
         self.workspace_platform_profile = profile_key
+        self.workspace_platform_center_x_m = float(profile.get("center_x_m", 0.0))
+        self.workspace_platform_center_y_m = float(profile.get("center_y_m", 0.0))
+        self.workspace_platform_size_x_m = float(profile["size_x_m"])
+        self.workspace_platform_size_y_m = float(profile["size_y_m"])
         self.workspace_platform_top_z_m = float(profile["default_top_z_m"])
         self.workspace_platform_bottom_z_m = float(profile["default_bottom_z_m"])
 
         widgets = (
             self.workspace_platform_profile_combo,
+            self.workspace_platform_center_x_spin,
+            self.workspace_platform_center_y_spin,
+            self.workspace_platform_size_x_spin,
+            self.workspace_platform_size_y_spin,
             self.workspace_platform_top_z_spin,
             self.workspace_platform_bottom_z_spin,
         )
@@ -3461,6 +3538,18 @@ class TrackEditorWindow(QMainWindow):
             index = self.workspace_platform_profile_combo.findData(profile_key)
             if index >= 0:
                 self.workspace_platform_profile_combo.setCurrentIndex(index)
+            self.workspace_platform_center_x_spin.setValue(
+                self.workspace_platform_center_x_m
+            )
+            self.workspace_platform_center_y_spin.setValue(
+                self.workspace_platform_center_y_m
+            )
+            self.workspace_platform_size_x_spin.setValue(
+                self.workspace_platform_size_x_m
+            )
+            self.workspace_platform_size_y_spin.setValue(
+                self.workspace_platform_size_y_m
+            )
             self.workspace_platform_top_z_spin.setValue(
                 self.workspace_platform_top_z_m
             )
@@ -3782,7 +3871,7 @@ class TrackEditorWindow(QMainWindow):
                     reference_description
                     + "The navigation overlay shows only Quanser's documented 400 m × "
                     "400 m outer boundary; internal obstacle holes are not reconstructed. "
-                    f"Native-workspace track/spawn Z: {self.workspace_spline_z_m:.2f} m."
+                    f"Native-workspace track base Z: {self.workspace_spline_z_m:.2f} m."
                     + accuracy_text
                     + f" Source data: {self.cityscape_reference_source}."
                 )
@@ -3798,24 +3887,23 @@ class TrackEditorWindow(QMainWindow):
                 )
             else:
                 calibration = self.townscape_reference.get("calibration", {})
-                status = str(calibration.get("status", ""))
-                if status == "two_anchor_similarity_pending_marker_validation":
-                    accuracy_text = (
-                        " Two documented parking coordinates define this fit; "
-                        "independent marker validation is still recommended."
-                    )
-                else:
-                    accuracy_text = ""
+                rms = calibration.get("marker_anchor_rms_error_m", None)
+                maximum = calibration.get("marker_anchor_max_error_m", None)
+                accuracy_text = ""
+                if rms is not None:
+                    accuracy_text += f" Four-marker RMS ≈ {float(rms):.3f} m."
+                if maximum is not None:
+                    accuracy_text += f" Max marker residual ≈ {float(maximum):.3f} m."
 
                 self.workspace_reference_note.setText(
                     "Townscape calibrated raster placement reference rectified from "
-                    "the supplied QLabs Townscape Lite top-down view. The middle and "
-                    "lower roadside parking bays were matched to Quanser's documented "
-                    "Road Parking 1/2 coordinates. The raster is editor-only and is "
-                    "never exported. The same road geometry is used for Townscape and "
-                    "Townscape Lite. The navigation overlay shows only Quanser's "
-                    "documented 400 m × 400 m outer boundary. "
-                    f"Native-workspace track/spawn Z: {self.workspace_spline_z_m:.2f} m."
+                    "QLabs top-down captures using four temporary validation markers: "
+                    "Open World Origin, Car Spawn Spot, Road Parking 1, and Road "
+                    "Parking 2. The clean raster is editor-only and is never exported. "
+                    "The same road geometry is used for Townscape and Townscape Lite. "
+                    "The navigation overlay shows only Quanser's documented 400 m × "
+                    "400 m outer boundary. "
+                    f"Native-workspace track base Z: {self.workspace_spline_z_m:.2f} m."
                     + accuracy_text
                     + f" Source data: {self.townscape_reference_source}."
                 )
