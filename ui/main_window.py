@@ -98,6 +98,7 @@ from core.geometry import (
 )
 from workspace.open_road import (
     load_open_road_reference,
+    open_road_display_reference,
     _offset_world_polyline,
     _world_polyline_path,
 )
@@ -3816,25 +3817,68 @@ class TrackEditorWindow(QMainWindow):
             )
 
             if open_road:
-                calibration = self.open_road_reference.get("calibration", {})
-                rms = calibration.get("anchor_rms_error_m", None)
-                accuracy_text = (
-                    f" Approximate anchor-fit RMS: {float(rms):.1f} m."
-                    if rms is not None
-                    else ""
+                display_reference = open_road_display_reference(
+                    self.open_road_reference
+                )
+                raw_count = int(display_reference.get("raw_point_count", 0))
+                display_count = int(
+                    display_reference.get("display_point_count", raw_count)
+                )
+                loop_distance_m = display_reference.get(
+                    "completed_loop_distance_m", None
+                )
+                return_distance_m = display_reference.get(
+                    "return_distance_m", None
+                )
+                tolerance_m = display_reference.get(
+                    "simplify_tolerance_m", None
                 )
 
+                measurement_text = ""
+                if display_reference.get("measured", False):
+                    measurement_text = (
+                        f"Measured QCar world-transform reference: {raw_count:,} raw "
+                        "X/Y/Z samples"
+                    )
+                    if loop_distance_m is not None:
+                        measurement_text += (
+                            f"; first completed loop ≈ "
+                            f"{float(loop_distance_m) / 1000.0:.2f} km"
+                        )
+                    if return_distance_m is not None:
+                        measurement_text += (
+                            f" and closes within {float(return_distance_m):.2f} m "
+                            "of the start"
+                        )
+                    if tolerance_m is not None:
+                        measurement_text += (
+                            f". Display uses {display_count:,} points with a "
+                            f"{float(tolerance_m):.1f} m XY simplification tolerance. "
+                        )
+                    else:
+                        measurement_text += ". "
+                else:
+                    calibration = self.open_road_reference.get("calibration", {})
+                    rms = calibration.get("anchor_rms_error_m", None)
+                    measurement_text = "Documentation-derived placement reference. "
+                    if rms is not None:
+                        measurement_text += (
+                            f"Approximate anchor-fit RMS: {float(rms):.1f} m. "
+                        )
+
                 self.workspace_reference_note.setText(
-                    "2-D documentation-derived placement overlay only; "
-                    "it contains no road elevation/Z and is never exported. "
-                    f"Spline Z defaults to {self.workspace_spline_z_m:.2f} m so "
-                    "custom splines remain above the native road mesh. "
-                    f"Visual road width ≈ {OPEN_ROAD_REFERENCE_TOTAL_WIDTH_M:.1f} m "
+                    measurement_text
+                    + "The editor draws the measured path in X/Y; recorded Z remains "
+                    "available in the JSON but is not represented by this top-down view. "
+                    "The displayed multi-lane road band is approximate and is centered "
+                    "on the driven QCar trajectory; it is not a survey of lane edges or "
+                    "the median. "
+                    f"Spline Z defaults to {self.workspace_spline_z_m:.2f} m. "
+                    f"Visual context width ≈ {OPEN_ROAD_REFERENCE_TOTAL_WIDTH_M:.1f} m "
                     f"({OPEN_ROAD_REFERENCE_LANES_PER_SIDE} lanes each direction, "
                     f"{OPEN_ROAD_REFERENCE_LANE_WIDTH_M:.1f} m/lane + "
-                    f"{OPEN_ROAD_REFERENCE_SEPARATOR_WIDTH_M:.1f} m separator). "
-                    + accuracy_text
-                    + f" Source data: {self.open_road_reference_source}."
+                    f"{OPEN_ROAD_REFERENCE_SEPARATOR_WIDTH_M:.2f} m separator). "
+                    f"Source data: {self.open_road_reference_source}."
                 )
 
                 self.scene.setSceneRect(
@@ -4249,23 +4293,16 @@ class TrackEditorWindow(QMainWindow):
                 painter.drawPath(path)
 
         # --------------------------------------------------------
-        # Documentation-derived road loop + approximate lane width
+        # Measured QCar trajectory + approximate lane-width context
         # --------------------------------------------------------
         if self.workspace_show_road_reference:
-            road_data = reference.get(
-                "road_reference",
-                {},
-            )
-            points = road_data.get(
-                "points",
-                [],
-            )
-            road_closed = bool(
-                road_data.get(
-                    "closed",
-                    False,
-                )
-            )
+            # The packaged logger data contains 46k+ raw 3-D samples.  The
+            # loader extracts the first completed lap and simplifies only its
+            # display copy; the full X/Y/Z recording remains untouched in the
+            # reference JSON.
+            road_data = open_road_display_reference(reference)
+            points = road_data.get("points", [])
+            road_closed = bool(road_data.get("closed", False))
 
             if len(points) >= 2:
                 road_path = _world_polyline_path(
@@ -4405,8 +4442,8 @@ class TrackEditorWindow(QMainWindow):
                         )
                     )
 
-                # Thin center reference so the original documentation-derived
-                # trajectory remains visible inside the separator.
+                # Thin measured reference so the actual logged QCar path
+                # remains visible inside the approximate road-width context.
                 center_reference_pen = QPen(
                     QColor(
                         255,
