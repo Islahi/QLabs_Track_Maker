@@ -197,3 +197,9 @@ python -m compileall main.py config.py registry.py core export items services ui
 ```
 
 For a clean repository, Python bytecode caches (`__pycache__`) should normally be ignored rather than committed.
+
+### Measured Open Road elevation spawning
+
+For the native **Open Road** workspace (with **Cover disabled**), QLabs exports now embed a compact 3-D elevation profile derived from `data/open_road_reference.json`. All exported scene actors use the nearest measured road segment to interpolate their local world Z; each actor's existing **Base Z** remains an additive offset. Moving people, animals, and secondary QCar2 actors recompute the measured surface Z continuously along waypoint routes. The primary QCar2 still starts with its normal 2 m spawn clearance above the local measured surface. Enabling **Cover** intentionally disables this behavior and uses the Cover **Top Z** as the flat surface instead.
+
+Because the logger measured a driven lane rather than a full terrain mesh, X/Y positions at true vertically overlapping road sections can be ambiguous; use **Base Z** to resolve a specific upper/lower placement if needed.

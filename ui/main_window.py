@@ -6323,8 +6323,10 @@ class TrackEditorWindow(QMainWindow):
             "v1.0.1 keeps navmesh-free manual waypoint playback for people/animals, the same "
             "interpolation logic used by environment QCars, readable actor aliases, clear junction "
             "centers, movement loops/despawn, triggers, and outdoor weather/time settings. "
-            "The Open Road reference overlay is editor-only and is not exported. The exported "
-            "setup stays running while movement or trigger monitoring is required.",
+            "The Open Road visual overlay remains editor-only; native Open Road exports now embed "
+            "a compact measured XYZ elevation profile so all actors can follow local road height. "
+            "Base Z remains an added per-actor offset, and Cover mode keeps its flat Top Z surface. "
+            "The exported setup stays running while movement or trigger monitoring is required.",
         )
 
     # ------------------------------------------------------------
