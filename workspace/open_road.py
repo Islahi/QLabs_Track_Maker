@@ -18,6 +18,12 @@ PROJECT_REFERENCE_FILE = Path(__file__).resolve().parents[1] / OPEN_ROAD_REFEREN
 MEASURED_DISPLAY_SIMPLIFY_TOLERANCE_M = 1.0
 MEASURED_LOOP_MIN_DISTANCE_M = 10000.0
 MEASURED_LOOP_RETURN_RADIUS_M = 25.0
+# Ignore the first few hundred metres when choosing the visual lap seam.
+# The logger run began while the QCar was still settling laterally on the
+# South straight (about Y=7.24 m) and the returned pass was near Y=6.42 m.
+# Moving the seam into the stable overlap prevents the reconstructed road
+# edges/lane guides from showing an artificial step at the original start.
+MEASURED_LOOP_SEAM_LEAD_IN_M = 200.0
 
 
 def open_road_reference_file_path() -> Path:
@@ -42,12 +48,14 @@ def _is_measured_reference(data: dict) -> bool:
 
 
 def _first_completed_loop(points: list) -> tuple[list, dict]:
-    """Extract the first measured lap that returns to the starting corridor.
+    """Extract the first measured lap using a stable overlap seam.
 
-    The logger may keep recording after a full lap.  We wait until at least
-    ``MEASURED_LOOP_MIN_DISTANCE_M`` has been travelled, detect the first pass
-    back within ``MEASURED_LOOP_RETURN_RADIUS_M`` of the first sample, and use
-    the closest sample from that first return encounter as the lap endpoint.
+    The logger may begin before the QCar has fully settled in its lane and it
+    may continue into a partial second lap.  Rather than closing the display
+    loop at raw sample 0, choose a seam after a short lead-in on the same
+    straight and then find the first later return to that point.  This keeps
+    the displayed loop faithful to the measured route while avoiding a fake
+    lateral step where the two passes meet.
 
     If no completed lap is detected, the complete recording is returned as an
     open path instead.
@@ -65,30 +73,45 @@ def _first_completed_loop(points: list) -> tuple[list, dict]:
             "closed": False,
             "distance_m": 0.0,
             "return_distance_m": None,
+            "start_index": None,
             "end_index": None,
+            "seam_lead_in_m": 0.0,
         }
 
-    start_x = float(clean[0][0])
-    start_y = float(clean[0][1])
-    cumulative_m = 0.0
-    entered_return_zone = False
-    best_return = None
-
+    cumulative = [0.0]
     for index in range(1, len(clean)):
         prev_x = float(clean[index - 1][0])
         prev_y = float(clean[index - 1][1])
         x = float(clean[index][0])
         y = float(clean[index][1])
-        cumulative_m += math.hypot(x - prev_x, y - prev_y)
+        cumulative.append(
+            cumulative[-1] + math.hypot(x - prev_x, y - prev_y)
+        )
 
-        if cumulative_m < MEASURED_LOOP_MIN_DISTANCE_M:
+    seam_index = 0
+    for index, distance_m in enumerate(cumulative):
+        if distance_m >= MEASURED_LOOP_SEAM_LEAD_IN_M:
+            seam_index = index
+            break
+
+    start_x = float(clean[seam_index][0])
+    start_y = float(clean[seam_index][1])
+    entered_return_zone = False
+    best_return = None
+
+    for index in range(seam_index + 1, len(clean)):
+        travelled_m = cumulative[index] - cumulative[seam_index]
+        if travelled_m < MEASURED_LOOP_MIN_DISTANCE_M:
             continue
 
+        x = float(clean[index][0])
+        y = float(clean[index][1])
         return_distance = math.hypot(x - start_x, y - start_y)
+
         if return_distance <= MEASURED_LOOP_RETURN_RADIUS_M:
             entered_return_zone = True
             if best_return is None or return_distance < best_return[0]:
-                best_return = (return_distance, index, cumulative_m)
+                best_return = (return_distance, index, travelled_m)
             continue
 
         if entered_return_zone:
@@ -96,21 +119,26 @@ def _first_completed_loop(points: list) -> tuple[list, dict]:
             break
 
     if best_return is None:
+        distance_m = cumulative[-1] - cumulative[seam_index]
         return clean, {
             "completed_loop_detected": False,
             "closed": False,
-            "distance_m": cumulative_m,
+            "distance_m": float(distance_m),
             "return_distance_m": None,
+            "start_index": int(seam_index),
             "end_index": None,
+            "seam_lead_in_m": float(cumulative[seam_index]),
         }
 
     return_distance, end_index, loop_distance_m = best_return
-    return clean[: end_index + 1], {
+    return clean[seam_index : end_index + 1], {
         "completed_loop_detected": True,
         "closed": True,
         "distance_m": float(loop_distance_m),
         "return_distance_m": float(return_distance),
+        "start_index": int(seam_index),
         "end_index": int(end_index),
+        "seam_lead_in_m": float(cumulative[seam_index]),
     }
 
 
@@ -201,9 +229,19 @@ def _prepare_reference(data: dict) -> dict:
         MEASURED_DISPLAY_SIMPLIFY_TOLERANCE_M,
     )
 
-    # For the completed loop, close from the nearest measured return sample to
-    # the first sample.  The small closing segment is at most the recorded
-    # return residual (about 1 m in the packaged two-hour run).
+    # The stable seam samples are already very close.  For display only, snap
+    # the final XY exactly onto the first XY so QPainter never draws a tiny
+    # diagonal closure across the straight.  Raw measured points/Z remain
+    # untouched in road_reference.
+    if lap_info["closed"] and len(display_points) >= 2:
+        first = list(display_points[0])
+        last = list(display_points[-1])
+        if len(last) >= 2:
+            last[0] = float(first[0])
+            last[1] = float(first[1])
+            display_points = list(display_points)
+            display_points[-1] = last
+
     data["_display_reference"] = {
         "points": display_points,
         "closed": bool(lap_info["closed"]),
@@ -215,7 +253,9 @@ def _prepare_reference(data: dict) -> dict:
         "completed_loop_detected": bool(lap_info["completed_loop_detected"]),
         "completed_loop_distance_m": float(lap_info["distance_m"]),
         "return_distance_m": lap_info["return_distance_m"],
+        "completed_loop_start_index": lap_info.get("start_index"),
         "completed_loop_end_index": lap_info["end_index"],
+        "seam_lead_in_m": lap_info.get("seam_lead_in_m", 0.0),
     }
     return data
 
@@ -272,6 +312,17 @@ def _offset_world_polyline(
         if len(point) >= 2
     ]
 
+    # A closed display loop may carry an explicit duplicate endpoint after the
+    # seam is snapped.  Remove that duplicate before computing vertex normals;
+    # otherwise the first/last normal can differ slightly and recreate a seam.
+    if (
+        closed
+        and len(clean) >= 3
+        and math.hypot(clean[-1][0] - clean[0][0], clean[-1][1] - clean[0][1])
+        <= 1e-6
+    ):
+        clean = clean[:-1]
+
     count = len(clean)
     if count < 2:
         return clean
@@ -323,6 +374,17 @@ def _world_polyline_path(
 
     if not points:
         return path
+
+    points = list(points)
+    if (
+        closed
+        and len(points) >= 3
+        and math.hypot(
+            float(points[-1][0]) - float(points[0][0]),
+            float(points[-1][1]) - float(points[0][1]),
+        ) <= 1e-6
+    ):
+        points = points[:-1]
 
     first = world_to_scene(
         float(points[0][0]),
