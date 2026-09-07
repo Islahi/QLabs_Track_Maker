@@ -66,6 +66,23 @@ OPEN_ROAD_REFERENCE_TOTAL_WIDTH_M = (
     + OPEN_ROAD_REFERENCE_SEPARATOR_WIDTH_M
 )
 
+# The two-hour logger run was driven in the MIDDLE lane of the upper
+# three-lane carriageway on the long South/start straight.  The logged QCar
+# trajectory is therefore a lane center, not the road/median centerline.
+#
+# Lane numbers are counted outward from the center separator:
+#   1 = inner lane, 2 = middle lane, 3 = outer lane.
+#
+# On the recorded lap the center separator stays to the driver's left, so a
+# positive left-normal offset moves from the measured lane toward the median.
+OPEN_ROAD_REFERENCE_MEASURED_LANE_FROM_SEPARATOR = 2
+OPEN_ROAD_REFERENCE_MEASURED_TO_SEPARATOR_NORMAL_SIGN = 1.0
+OPEN_ROAD_REFERENCE_MEASURED_TO_SEPARATOR_OFFSET_M = (
+    OPEN_ROAD_REFERENCE_SEPARATOR_WIDTH_M / 2.0
+    + (OPEN_ROAD_REFERENCE_MEASURED_LANE_FROM_SEPARATOR - 0.5)
+    * OPEN_ROAD_REFERENCE_LANE_WIDTH_M
+)
+
 # Median/barrier wall defaults. The wall is an editor/exportable static object
 # and straight roads can snap flush to either side of it.
 DEFAULT_MEDIAN_WALL_LENGTH_M = 20.0

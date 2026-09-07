@@ -57,6 +57,9 @@ from config import (
     OPEN_ROAD_REFERENCE_CARRIAGEWAY_WIDTH_M,
     OPEN_ROAD_REFERENCE_SEPARATOR_WIDTH_M,
     OPEN_ROAD_REFERENCE_TOTAL_WIDTH_M,
+    OPEN_ROAD_REFERENCE_MEASURED_LANE_FROM_SEPARATOR,
+    OPEN_ROAD_REFERENCE_MEASURED_TO_SEPARATOR_NORMAL_SIGN,
+    OPEN_ROAD_REFERENCE_MEASURED_TO_SEPARATOR_OFFSET_M,
     CROSSWALK_MARKER_LENGTH_M,
     CROSSWALK_MARKER_WIDTH_M,
     CROSSWALK_QLABS_BASE_SCALE,
@@ -3870,9 +3873,13 @@ class TrackEditorWindow(QMainWindow):
                     measurement_text
                     + "The editor draws the measured path in X/Y; recorded Z remains "
                     "available in the JSON but is not represented by this top-down view. "
-                    "The displayed multi-lane road band is approximate and is centered "
-                    "on the driven QCar trajectory; it is not a survey of lane edges or "
-                    "the median. "
+                    f"The logger path is calibrated as lane "
+                    f"{OPEN_ROAD_REFERENCE_MEASURED_LANE_FROM_SEPARATOR} (middle) of the "
+                    "three-lane upper carriageway on the South/start straight. The "
+                    f"approximate separator center is therefore offset "
+                    f"{OPEN_ROAD_REFERENCE_MEASURED_TO_SEPARATOR_OFFSET_M:.3f} m toward "
+                    "the driver's left from the recorded trajectory. Lane edges and the "
+                    "median remain visual estimates, not surveyed geometry. "
                     f"Spline Z defaults to {self.workspace_spline_z_m:.2f} m. "
                     f"Visual context width ≈ {OPEN_ROAD_REFERENCE_TOTAL_WIDTH_M:.1f} m "
                     f"({OPEN_ROAD_REFERENCE_LANES_PER_SIDE} lanes each direction, "
@@ -4305,8 +4312,23 @@ class TrackEditorWindow(QMainWindow):
             road_closed = bool(road_data.get("closed", False))
 
             if len(points) >= 2:
-                road_path = _world_polyline_path(
+                # The measured samples are the QCar's lane center. During the
+                # logger run the car occupied lane 2 (middle lane) of the
+                # upper three-lane carriageway on the South/start straight.
+                # Reconstruct an approximate separator/road centerline by
+                # moving from the measured lane toward the driver's left.
+                measured_path = _world_polyline_path(
                     points,
+                    road_closed,
+                )
+                road_center_points = _offset_world_polyline(
+                    points,
+                    OPEN_ROAD_REFERENCE_MEASURED_TO_SEPARATOR_NORMAL_SIGN
+                    * OPEN_ROAD_REFERENCE_MEASURED_TO_SEPARATOR_OFFSET_M,
+                    road_closed,
+                )
+                road_path = _world_polyline_path(
+                    road_center_points,
                     road_closed,
                 )
 
@@ -4396,7 +4418,7 @@ class TrackEditorWindow(QMainWindow):
                         )
 
                         divider_points = _offset_world_polyline(
-                            points,
+                            road_center_points,
                             offset_m,
                             road_closed,
                         )
@@ -4431,7 +4453,7 @@ class TrackEditorWindow(QMainWindow):
 
                 for side_sign in (-1.0, 1.0):
                     edge_points = _offset_world_polyline(
-                        points,
+                        road_center_points,
                         side_sign * outer_offset,
                         road_closed,
                     )
@@ -4442,8 +4464,9 @@ class TrackEditorWindow(QMainWindow):
                         )
                     )
 
-                # Thin measured reference so the actual logged QCar path
-                # remains visible inside the approximate road-width context.
+                # Thin measured reference so the actual logged QCar lane
+                # trajectory remains visible in its calibrated middle-lane
+                # position inside the approximate road-width context.
                 center_reference_pen = QPen(
                     QColor(
                         255,
@@ -4458,7 +4481,7 @@ class TrackEditorWindow(QMainWindow):
                     Qt.PenStyle.DotLine
                 )
                 painter.setPen(center_reference_pen)
-                painter.drawPath(road_path)
+                painter.drawPath(measured_path)
 
         # --------------------------------------------------------
         # Published QLabs reference coordinates

@@ -158,7 +158,7 @@ QLabs_Track_Maker/
 
 ## Workspace calibration notes
 
-Open Road uses a QCar2 world-transform logger recording as its primary placement reference. The packaged recording contains 46,339 raw `[x, y, elevation_z]` samples over about 54.04 km. At load time the editor detects the first completed loop (about 49.91 km, returning within about 0.93 m of the start) and simplifies only the display copy to a 1.0 m XY tolerance. The full 3-D samples remain in `data/open_road_reference.json`. The multi-lane band drawn around the measured trajectory is visual context only; lane edges and the median were not surveyed by the logger.
+Open Road uses a QCar2 world-transform logger recording as its primary placement reference. The packaged recording contains 46,339 raw `[x, y, elevation_z]` samples over about 54.04 km. At load time the editor detects the first completed loop (about 49.91 km, returning within about 0.93 m of the start) and simplifies only the display copy to a 1.0 m XY tolerance. The full 3-D samples remain in `data/open_road_reference.json`. The logged QCar was driven in lane 2 (the middle lane) of the upper three-lane carriageway on the South/start straight, so the editor offsets the approximate separator centerline 6.125 m toward the driver's left from the measured trajectory. The multi-lane band is still visual context only; lane edges and the median were not directly surveyed by the logger.
 
 Cityscape/Cityscape Lite and Townscape/Townscape Lite use calibrated visual references derived from QLabs top-down captures. The Townscape calibration uses four published reference locations:
 
