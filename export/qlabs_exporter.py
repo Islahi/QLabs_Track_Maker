@@ -4,9 +4,107 @@ The generated source preserves the complete v1.0.1 runtime behavior.
 """
 
 import ast
+import json
+import math
+from pathlib import Path
 
-from config import WORKSPACE_CUSTOM, WORKSPACE_OPEN_ROAD
+from config import (
+    OPEN_ROAD_REFERENCE_FILENAME,
+    WORKSPACE_CUSTOM,
+    WORKSPACE_OPEN_ROAD,
+)
 from workspace.profiles import workspace_mode_label
+
+
+OPEN_ROAD_ELEVATION_SAMPLE_SPACING_M = 5.0
+
+
+def _open_road_reference_candidates() -> list[Path]:
+    project_root = Path(__file__).resolve().parents[1]
+    return [
+        project_root / OPEN_ROAD_REFERENCE_FILENAME,
+        project_root / "data" / "open_road_reference.json",
+    ]
+
+
+def _sample_open_road_elevation_points(points: list, spacing_m: float) -> list[list[float]]:
+    """Reduce measured Open Road XYZ samples without losing elevation changes.
+
+    The normal map-display simplifier is XY-only and can collapse a long,
+    straight uphill/downhill road to only two points.  Elevation export instead
+    keeps samples by travelled distance so Z remains represented even where the
+    road is straight in plan view.
+    """
+    clean: list[list[float]] = []
+    for point in points:
+        if not isinstance(point, (list, tuple)) or len(point) < 3:
+            continue
+        try:
+            x, y, z = float(point[0]), float(point[1]), float(point[2])
+        except (TypeError, ValueError):
+            continue
+        if not (math.isfinite(x) and math.isfinite(y) and math.isfinite(z)):
+            continue
+        clean.append([x, y, z])
+
+    if len(clean) <= 2:
+        return clean
+
+    spacing_m = max(0.1, float(spacing_m))
+    sampled = [clean[0]]
+    distance_since_keep = 0.0
+    previous = clean[0]
+
+    for point in clean[1:]:
+        step = math.hypot(point[0] - previous[0], point[1] - previous[1])
+        distance_since_keep += step
+        previous = point
+        if distance_since_keep >= spacing_m:
+            sampled.append(point)
+            distance_since_keep = 0.0
+
+    if sampled[-1] != clean[-1]:
+        sampled.append(clean[-1])
+    return sampled
+
+
+def _load_open_road_elevation_profile() -> tuple[list[list[float]], str]:
+    """Load a compact measured XYZ profile for standalone QLabs exports."""
+    for reference_path in _open_road_reference_candidates():
+        if not reference_path.is_file():
+            continue
+        try:
+            document = json.loads(reference_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+
+        if document.get("workspace") != "Open Road":
+            continue
+        road = document.get("road_reference", {}) or {}
+        raw_points = road.get("points", []) or []
+        if not raw_points:
+            continue
+
+        # Prefer the first complete lap when the logger analysis is available.
+        # This avoids embedding the extra partial second lap while retaining the
+        # full mountain/elevation circuit.
+        analysis = road.get("recording_analysis", {}) or {}
+        if bool(analysis.get("contains_complete_loop", False)):
+            try:
+                end_index = int(analysis.get("first_completed_loop_end_index"))
+            except (TypeError, ValueError):
+                end_index = -1
+            if 1 <= end_index < len(raw_points):
+                raw_points = raw_points[: end_index + 1]
+
+        sampled = _sample_open_road_elevation_points(
+            raw_points, OPEN_ROAD_ELEVATION_SAMPLE_SPACING_M
+        )
+        if len(sampled) >= 2:
+            return sampled, reference_path.name
+
+    return [], "unavailable"
+
 
 def build_qlabs_setup_source(track_data: dict) -> str:
     # The returned source is standalone. It only imports Quanser libraries
@@ -17,6 +115,14 @@ def build_qlabs_setup_source(track_data: dict) -> str:
         track_data.get("workspace", {}).get("mode", WORKSPACE_CUSTOM)
     )
     platform_data = track_data.get("workspace_platform", {}) or {}
+
+    open_road_elevation_points: list[list[float]] = []
+    open_road_elevation_source = "disabled"
+    if workspace_mode == WORKSPACE_OPEN_ROAD and not bool(platform_data.get("enabled", False)):
+        open_road_elevation_points, open_road_elevation_source = (
+            _load_open_road_elevation_profile()
+        )
+    embedded_open_road_elevation = repr(open_road_elevation_points)
     if bool(platform_data.get("enabled", False)):
         workspace_label = str(
             platform_data.get("workspace_label", "selected workspace")
@@ -75,6 +181,12 @@ TRACK_DATA = __TRACK_DATA__
 WORKSPACE_SETTINGS = TRACK_DATA.get("workspace", {}) or {}
 PLATFORM_SETTINGS = TRACK_DATA.get("workspace_platform", {}) or {}
 PLATFORM_ENABLED = bool(PLATFORM_SETTINGS.get("enabled", False))
+OPEN_ROAD_ELEVATION_POINTS = __OPEN_ROAD_ELEVATION_POINTS__
+OPEN_ROAD_NATIVE_ELEVATION_ENABLED = (
+    not PLATFORM_ENABLED
+    and str(WORKSPACE_SETTINGS.get("mode", "")) == "open_road"
+    and len(OPEN_ROAD_ELEVATION_POINTS) >= 2
+)
 
 # Native workspaces can have surfaces/road meshes at different effective Z
 # heights.  The editor stores a per-workspace track-base (spline) Z so custom
@@ -98,6 +210,11 @@ NEXT_COMPOSITE_BASIC_SHAPE_ACTOR_NUMBER = 5000
 # move that proxy instead. Parenting is a QLabs kinematic relationship, so the
 # character follows without using the Open World's navigation mesh.
 MANUAL_CHARACTER_PROXY_SCALE = 0.001
+
+# Native Open Road actor placement.  The measured XYZ profile gives the local
+# road elevation.  QCars are created above it to avoid clipping into the road
+# mesh, while normal actors use their Base Z offset directly.
+OPEN_ROAD_QCAR_SPAWN_CLEARANCE_M = 1.50
 
 ROAD_COLOR = [75 / 255.0, 75 / 255.0, 75 / 255.0]
 # A cover box needs a tiny additional lift to avoid z-fighting with its top
@@ -1273,12 +1390,63 @@ def actor_effective_scale(obj):
     return multiplier
 
 
+def open_road_surface_z_at_world_xy(x, y):
+    """Interpolate measured Open Road Z from the nearest recorded XY segment.
+
+    The logger measured one driven lane.  For nearby roadside actors we use the
+    nearest segment as a terrain/road-height proxy.  At a true vertically
+    overlapping road crossing, XY alone cannot identify upper vs lower deck;
+    the object's Base Z remains available as a manual offset for that case.
+    """
+    if not OPEN_ROAD_NATIVE_ELEVATION_ENABLED:
+        return TRACK_BASE_Z
+
+    px = float(x)
+    py = float(y)
+    best_distance_sq = float("inf")
+    best_z = TRACK_BASE_Z
+
+    for index in range(len(OPEN_ROAD_ELEVATION_POINTS) - 1):
+        a = OPEN_ROAD_ELEVATION_POINTS[index]
+        b = OPEN_ROAD_ELEVATION_POINTS[index + 1]
+        ax, ay, az = float(a[0]), float(a[1]), float(a[2])
+        bx, by, bz = float(b[0]), float(b[1]), float(b[2])
+        dx = bx - ax
+        dy = by - ay
+        denominator = dx * dx + dy * dy
+
+        if denominator <= 1e-12:
+            t = 0.0
+        else:
+            t = ((px - ax) * dx + (py - ay) * dy) / denominator
+            t = max(0.0, min(1.0, t))
+
+        qx = ax + t * dx
+        qy = ay + t * dy
+        distance_sq = (px - qx) ** 2 + (py - qy) ** 2
+        if distance_sq < best_distance_sq:
+            best_distance_sq = distance_sq
+            best_z = az + t * (bz - az)
+
+    return float(best_z)
+
+
+def surface_z_at_world_xy(x, y):
+    if OPEN_ROAD_NATIVE_ELEVATION_ENABLED:
+        return open_road_surface_z_at_world_xy(x, y)
+    return TRACK_BASE_Z
+
+
 def actor_location(obj, extra_z=0.0):
     scale = project_scale()
+    world_x = float(obj.get("x", 0.0)) * scale
+    world_y = float(obj.get("y", 0.0)) * scale
     return [
-        float(obj.get("x", 0.0)) * scale,
-        float(obj.get("y", 0.0)) * scale,
-        TRACK_BASE_Z + float(obj.get("z_m", 0.0)) * scale + extra_z,
+        world_x,
+        world_y,
+        surface_z_at_world_xy(world_x, world_y)
+        + float(obj.get("z_m", 0.0)) * scale
+        + extra_z,
     ]
 
 
@@ -1370,8 +1538,17 @@ def _movement_route_design(obj):
 
 def _scaled_route(obj):
     scale = project_scale()
-    z = TRACK_BASE_Z + max(0.005, float(obj.get("z_m", 0.0)) * scale)
-    return [[p[0] * scale, p[1] * scale, z] for p in _movement_route_design(obj)]
+    z_offset = float(obj.get("z_m", 0.0)) * scale
+    route = []
+    for point in _movement_route_design(obj):
+        world_x = point[0] * scale
+        world_y = point[1] * scale
+        route.append([
+            world_x,
+            world_y,
+            surface_z_at_world_xy(world_x, world_y) + z_offset,
+        ])
+    return route
 
 
 def _movement_speed_for_actor(actor, obj):
@@ -1672,6 +1849,12 @@ def update_actor_movements():
             yaw = math.atan2(uy, ux)
             state["yaw"] = yaw
 
+        # Native Open Road routes follow the measured elevation continuously,
+        # even when waypoints are far apart. Cover mode/other workspaces retain
+        # their existing flat TRACK_BASE_Z behavior.
+        z_offset = float(obj.get("z_m", 0.0)) * project_scale()
+        pos[2] = surface_z_at_world_xy(pos[0], pos[1]) + z_offset
+
         if obj_type == "secondary_qcar2":
             _set_secondary_qcar_transform(actor, pos, yaw)
         elif obj_type == "animal" and str(obj.get("animal_type", "goat")) == "camel":
@@ -1699,10 +1882,12 @@ def spawn_basic_shape_part(
     local_y = float(offset[1]) * part_scale
     dx, dy = rotate_local_world(local_x, local_y, obj.get("rotation_deg", 0.0))
 
+    base_world_x = float(obj.get("x", 0.0)) * project_scale()
+    base_world_y = float(obj.get("y", 0.0)) * project_scale()
     location = [
-        float(obj.get("x", 0.0)) * project_scale() + dx,
-        float(obj.get("y", 0.0)) * project_scale() + dy,
-        TRACK_BASE_Z
+        base_world_x + dx,
+        base_world_y + dy,
+        surface_z_at_world_xy(base_world_x, base_world_y)
         + float(obj.get("z_m", 0.0)) * project_scale()
         + float(offset[2]) * part_scale,
     ]
@@ -2050,10 +2235,13 @@ def _asg_scale(obj):
 
 
 def _asg_base(obj):
+    world_x = float(obj.get("x", 0.0)) * project_scale()
+    world_y = float(obj.get("y", 0.0)) * project_scale()
     return [
-        float(obj.get("x", 0.0)) * project_scale(),
-        float(obj.get("y", 0.0)) * project_scale(),
-        TRACK_BASE_Z + float(obj.get("z_m", 0.0)) * project_scale(),
+        world_x,
+        world_y,
+        surface_z_at_world_xy(world_x, world_y)
+        + float(obj.get("z_m", 0.0)) * project_scale(),
     ]
 
 
@@ -2974,11 +3162,15 @@ def spawn_scene_actor(qlabs, obj):
         width = max(0.02, float(obj.get("width_m", 0.6)) * scale)
         height = max(0.02, float(obj.get("height_m", 0.85)) * scale)
         actor = QLabsBasicShape(qlabs)
+        world_x = float(obj.get("x", 0.0)) * scale
+        world_y = float(obj.get("y", 0.0)) * scale
         status, _actor_number = actor.spawn(
             location=[
-                float(obj.get("x", 0.0)) * scale,
-                float(obj.get("y", 0.0)) * scale,
-                TRACK_BASE_Z + height / 2.0,
+                world_x,
+                world_y,
+                surface_z_at_world_xy(world_x, world_y)
+                + float(obj.get("z_m", 0.0)) * scale
+                + height / 2.0,
             ],
             rotation=[0.0, 0.0, yaw],
             scale=[length, width, height],
@@ -3032,7 +3224,8 @@ def spawn_scene_actor(qlabs, obj):
     if obj_type == "crosswalk":
         actor = QLabsCrosswalk(qlabs)
         location = actor_location(obj)
-        location[2] = max(location[2], ROAD_Z + 0.005)
+        if not OPEN_ROAD_NATIVE_ELEVATION_ENABLED:
+            location[2] = max(location[2], ROAD_Z + 0.005)
         fitted_scale = actor_scale * CROSSWALK_QLABS_BASE_SCALE
         length_factor = max(
             0.01,
@@ -3057,9 +3250,13 @@ def spawn_scene_actor(qlabs, obj):
         length = max(0.01, float(obj.get("length_m", 10.0)) * dimension_scale)
         width = max(0.01, float(obj.get("width_m", 8.0)) * dimension_scale)
         height = max(0.01, float(obj.get("height_m", 5.0)) * dimension_scale)
-        base_z = TRACK_BASE_Z + float(obj.get("z_m", 0.0)) * project_scale()
-        center_location = [float(obj.get("x", 0.0)) * project_scale(),
-                           float(obj.get("y", 0.0)) * project_scale(), base_z + height / 2.0]
+        world_x = float(obj.get("x", 0.0)) * project_scale()
+        world_y = float(obj.get("y", 0.0)) * project_scale()
+        base_z = (
+            surface_z_at_world_xy(world_x, world_y)
+            + float(obj.get("z_m", 0.0)) * project_scale()
+        )
+        center_location = [world_x, world_y, base_z + height / 2.0]
         actor.spawn(location=center_location, rotation=[0, 0, yaw], scale=[length, width, height],
                     configuration=QLabsBasicShape.SHAPE_CUBE, waitForConfirmation=True)
         actor.set_material_properties(color=normalized_rgb(obj.get("rgb", [145, 155, 170])),
@@ -3120,9 +3317,14 @@ def spawn_scene_actor(qlabs, obj):
         actor = QLabsQCar2(qlabs)
         actor_number = NEXT_SECONDARY_QCAR_ACTOR_NUMBER
         NEXT_SECONDARY_QCAR_ACTOR_NUMBER += 1
+        qcar_spawn_clearance = (
+            OPEN_ROAD_QCAR_SPAWN_CLEARANCE_M * project_scale()
+            if OPEN_ROAD_NATIVE_ELEVATION_ENABLED
+            else 0.005
+        )
         actor.spawn_id(
             actorNumber=actor_number,
-            location=actor_location(obj, extra_z=0.005),
+            location=actor_location(obj, extra_z=qcar_spawn_clearance),
             rotation=[0, 0, yaw],
             scale=uniform_scale,
             configuration=0,
@@ -3278,13 +3480,20 @@ def spawn_qcar2(qlabs):
     obj = starts[0]
     scale = project_scale()
 
+    world_x = float(obj.get("x", 0.0)) * scale
+    world_y = float(obj.get("y", 0.0)) * scale
     qcar = QLabsQCar2(qlabs)
     qcar.spawn_id(
         actorNumber=0,
         location=[
-            float(obj.get("x", 0.0)) * scale,
-            float(obj.get("y", 0.0)) * scale,
-            TRACK_BASE_Z + 2.0 * scale,  # Spawn above the custom track surface.
+            world_x,
+            world_y,
+            surface_z_at_world_xy(world_x, world_y)
+            + (
+                OPEN_ROAD_QCAR_SPAWN_CLEARANCE_M * scale
+                if OPEN_ROAD_NATIVE_ELEVATION_ENABLED
+                else 2.0 * scale
+            ),  # Lift native Open Road QCar above local measured road Z.
         ],
         rotation=[
             0,
@@ -3309,6 +3518,12 @@ def main():
         sys.exit(1)
 
     print("Connected to QLabs.")
+    if OPEN_ROAD_NATIVE_ELEVATION_ENABLED:
+        print(
+            "Open Road measured elevation enabled:",
+            len(OPEN_ROAD_ELEVATION_POINTS),
+            "XYZ samples",
+        )
 
     qlabs.destroy_all_spawned_actors()
     QLabsRealTime().terminate_all_real_time_models()
@@ -3371,8 +3586,10 @@ if __name__ == "__main__":
     main()
 '''
 
-    rendered = template.replace("__TRACK_DATA__", embedded_track).replace(
-        "__WORKSPACE_LABEL__", workspace_label
+    rendered = (
+        template.replace("__TRACK_DATA__", embedded_track)
+        .replace("__WORKSPACE_LABEL__", workspace_label)
+        .replace("__OPEN_ROAD_ELEVATION_POINTS__", embedded_open_road_elevation)
     )
     return _compact_generated_source(rendered, track_data, workspace_label)
 

@@ -57,6 +57,11 @@ from config import (
     OPEN_ROAD_REFERENCE_CARRIAGEWAY_WIDTH_M,
     OPEN_ROAD_REFERENCE_SEPARATOR_WIDTH_M,
     OPEN_ROAD_REFERENCE_TOTAL_WIDTH_M,
+    OPEN_ROAD_REFERENCE_MEASURED_LANE_FROM_SEPARATOR,
+    OPEN_ROAD_REFERENCE_MEASURED_TO_SEPARATOR_NORMAL_SIGN,
+    OPEN_ROAD_REFERENCE_MEASURED_TO_SEPARATOR_OFFSET_M,
+    OPEN_ROAD_NEW_ACTOR_GROUND_EMBED_M,
+    OPEN_ROAD_CROSSWALK_SURFACE_OFFSET_M,
     CROSSWALK_MARKER_LENGTH_M,
     CROSSWALK_MARKER_WIDTH_M,
     CROSSWALK_QLABS_BASE_SCALE,
@@ -98,6 +103,7 @@ from core.geometry import (
 )
 from workspace.open_road import (
     load_open_road_reference,
+    open_road_display_reference,
     _offset_world_polyline,
     _world_polyline_path,
 )
@@ -1432,6 +1438,32 @@ class TrackEditorWindow(QMainWindow):
         for item in ordered:
             self._assign_readable_identifier_if_needed(item)
 
+    def _apply_new_open_road_actor_z_default(self, item: TrackItem):
+        """Assign a sensible Base Z offset to newly added native Open Road actors.
+
+        Open Road terrain elevation itself is resolved automatically by the
+        exporter from the measured XYZ trajectory.  Base Z therefore remains a
+        *relative* fine-tuning offset.  New ground actors are embedded slightly
+        to hide their base, while crosswalks stay just above the surface to
+        avoid z-fighting.  QCar spawn clearance is handled separately by the
+        exporter so a moving QCar can settle/follow the true road elevation.
+        """
+        if self.workspace_mode != WORKSPACE_OPEN_ROAD:
+            return
+        if bool(self.workspace_platform_enabled):
+            return
+        if not isinstance(item, SceneActorItem):
+            return
+
+        if isinstance(item, SecondaryQCarItem):
+            # QCar +1.5 m spawn clearance is transient and must not be stored as
+            # Base Z, otherwise a waypoint-driven QCar would remain floating.
+            item.z_m = 0.0
+        elif isinstance(item, CrosswalkItem):
+            item.z_m = float(OPEN_ROAD_CROSSWALK_SURFACE_OFFSET_M)
+        else:
+            item.z_m = float(OPEN_ROAD_NEW_ACTOR_GROUND_EMBED_M)
+
     def _add_item_at_view_center(self, item: TrackItem):
         self._begin_undo_transaction(f"Add {item.DISPLAY_NAME}")
         center_scene = self.view.mapToScene(self.view.viewport().rect().center())
@@ -1447,6 +1479,7 @@ class TrackEditorWindow(QMainWindow):
         # The canvas rectangle limits auto-fill, but does not lock manual dragging.
         self.scene.addItem(item)
         item.setPos(proposed)
+        self._apply_new_open_road_actor_z_default(item)
         item.setSelected(True)
         self.update_selection_info()
         self._commit_undo_transaction()
@@ -3816,25 +3849,72 @@ class TrackEditorWindow(QMainWindow):
             )
 
             if open_road:
-                calibration = self.open_road_reference.get("calibration", {})
-                rms = calibration.get("anchor_rms_error_m", None)
-                accuracy_text = (
-                    f" Approximate anchor-fit RMS: {float(rms):.1f} m."
-                    if rms is not None
-                    else ""
+                display_reference = open_road_display_reference(
+                    self.open_road_reference
+                )
+                raw_count = int(display_reference.get("raw_point_count", 0))
+                display_count = int(
+                    display_reference.get("display_point_count", raw_count)
+                )
+                loop_distance_m = display_reference.get(
+                    "completed_loop_distance_m", None
+                )
+                return_distance_m = display_reference.get(
+                    "return_distance_m", None
+                )
+                tolerance_m = display_reference.get(
+                    "simplify_tolerance_m", None
                 )
 
+                measurement_text = ""
+                if display_reference.get("measured", False):
+                    measurement_text = (
+                        f"Measured QCar world-transform reference: {raw_count:,} raw "
+                        "X/Y/Z samples"
+                    )
+                    if loop_distance_m is not None:
+                        measurement_text += (
+                            f"; first completed loop ≈ "
+                            f"{float(loop_distance_m) / 1000.0:.2f} km"
+                        )
+                    if return_distance_m is not None:
+                        measurement_text += (
+                            f" and closes within {float(return_distance_m):.2f} m "
+                            "of the start"
+                        )
+                    if tolerance_m is not None:
+                        measurement_text += (
+                            f". Display uses {display_count:,} points with a "
+                            f"{float(tolerance_m):.1f} m XY simplification tolerance. "
+                        )
+                    else:
+                        measurement_text += ". "
+                else:
+                    calibration = self.open_road_reference.get("calibration", {})
+                    rms = calibration.get("anchor_rms_error_m", None)
+                    measurement_text = "Documentation-derived placement reference. "
+                    if rms is not None:
+                        measurement_text += (
+                            f"Approximate anchor-fit RMS: {float(rms):.1f} m. "
+                        )
+
                 self.workspace_reference_note.setText(
-                    "2-D documentation-derived placement overlay only; "
-                    "it contains no road elevation/Z and is never exported. "
-                    f"Spline Z defaults to {self.workspace_spline_z_m:.2f} m so "
-                    "custom splines remain above the native road mesh. "
-                    f"Visual road width ≈ {OPEN_ROAD_REFERENCE_TOTAL_WIDTH_M:.1f} m "
+                    measurement_text
+                    + "The editor draws the measured path in X/Y; recorded Z remains "
+                    "available in the JSON but is not represented by this top-down view. "
+                    f"The logger path is calibrated as lane "
+                    f"{OPEN_ROAD_REFERENCE_MEASURED_LANE_FROM_SEPARATOR} (middle) of the "
+                    "three-lane upper carriageway on the South/start straight. The "
+                    f"approximate separator center is therefore offset "
+                    f"{OPEN_ROAD_REFERENCE_MEASURED_TO_SEPARATOR_OFFSET_M:.3f} m toward "
+                    "the driver's left from the recorded trajectory. Lane edges and the "
+                    "median remain visual estimates, not surveyed geometry. "
+                    f"Spline Z defaults to {self.workspace_spline_z_m:.2f} m. "
+                    f"Visual context width ≈ {OPEN_ROAD_REFERENCE_TOTAL_WIDTH_M:.1f} m "
                     f"({OPEN_ROAD_REFERENCE_LANES_PER_SIDE} lanes each direction, "
                     f"{OPEN_ROAD_REFERENCE_LANE_WIDTH_M:.1f} m/lane + "
-                    f"{OPEN_ROAD_REFERENCE_SEPARATOR_WIDTH_M:.1f} m separator). "
-                    + accuracy_text
-                    + f" Source data: {self.open_road_reference_source}."
+                    f"{OPEN_ROAD_REFERENCE_SEPARATOR_WIDTH_M:.2f} m separator). "
+                    f"Source data: {self.open_road_reference_source}."
                 )
 
                 self.scene.setSceneRect(
@@ -4249,27 +4329,35 @@ class TrackEditorWindow(QMainWindow):
                 painter.drawPath(path)
 
         # --------------------------------------------------------
-        # Documentation-derived road loop + approximate lane width
+        # Measured QCar trajectory + approximate lane-width context
         # --------------------------------------------------------
         if self.workspace_show_road_reference:
-            road_data = reference.get(
-                "road_reference",
-                {},
-            )
-            points = road_data.get(
-                "points",
-                [],
-            )
-            road_closed = bool(
-                road_data.get(
-                    "closed",
-                    False,
-                )
-            )
+            # The packaged logger data contains 46k+ raw 3-D samples.  The
+            # loader extracts the first completed lap and simplifies only its
+            # display copy; the full X/Y/Z recording remains untouched in the
+            # reference JSON.
+            road_data = open_road_display_reference(reference)
+            points = road_data.get("points", [])
+            road_closed = bool(road_data.get("closed", False))
 
             if len(points) >= 2:
-                road_path = _world_polyline_path(
+                # The measured samples are the QCar's lane center. During the
+                # logger run the car occupied lane 2 (middle lane) of the
+                # upper three-lane carriageway on the South/start straight.
+                # Reconstruct an approximate separator/road centerline by
+                # moving from the measured lane toward the driver's left.
+                measured_path = _world_polyline_path(
                     points,
+                    road_closed,
+                )
+                road_center_points = _offset_world_polyline(
+                    points,
+                    OPEN_ROAD_REFERENCE_MEASURED_TO_SEPARATOR_NORMAL_SIGN
+                    * OPEN_ROAD_REFERENCE_MEASURED_TO_SEPARATOR_OFFSET_M,
+                    road_closed,
+                )
+                road_path = _world_polyline_path(
+                    road_center_points,
                     road_closed,
                 )
 
@@ -4359,7 +4447,7 @@ class TrackEditorWindow(QMainWindow):
                         )
 
                         divider_points = _offset_world_polyline(
-                            points,
+                            road_center_points,
                             offset_m,
                             road_closed,
                         )
@@ -4394,7 +4482,7 @@ class TrackEditorWindow(QMainWindow):
 
                 for side_sign in (-1.0, 1.0):
                     edge_points = _offset_world_polyline(
-                        points,
+                        road_center_points,
                         side_sign * outer_offset,
                         road_closed,
                     )
@@ -4405,8 +4493,9 @@ class TrackEditorWindow(QMainWindow):
                         )
                     )
 
-                # Thin center reference so the original documentation-derived
-                # trajectory remains visible inside the separator.
+                # Thin measured reference so the actual logged QCar lane
+                # trajectory remains visible in its calibrated middle-lane
+                # position inside the approximate road-width context.
                 center_reference_pen = QPen(
                     QColor(
                         255,
@@ -4421,7 +4510,7 @@ class TrackEditorWindow(QMainWindow):
                     Qt.PenStyle.DotLine
                 )
                 painter.setPen(center_reference_pen)
-                painter.drawPath(road_path)
+                painter.drawPath(measured_path)
 
         # --------------------------------------------------------
         # Published QLabs reference coordinates
@@ -6263,8 +6352,10 @@ class TrackEditorWindow(QMainWindow):
             "v1.0.1 keeps navmesh-free manual waypoint playback for people/animals, the same "
             "interpolation logic used by environment QCars, readable actor aliases, clear junction "
             "centers, movement loops/despawn, triggers, and outdoor weather/time settings. "
-            "The Open Road reference overlay is editor-only and is not exported. The exported "
-            "setup stays running while movement or trigger monitoring is required.",
+            "The Open Road visual overlay remains editor-only; native Open Road exports now embed "
+            "a compact measured XYZ elevation profile so all actors can follow local road height. "
+            "Base Z remains an added per-actor offset, and Cover mode keeps its flat Top Z surface. "
+            "The exported setup stays running while movement or trigger monitoring is required.",
         )
 
     # ------------------------------------------------------------

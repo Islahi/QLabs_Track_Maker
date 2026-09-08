@@ -33,7 +33,7 @@ The editor provides a 2-D, meter-based canvas with snapping, calibrated workspac
 | Editor selection | QLabs workspace | Reference behavior |
 | --- | --- | --- |
 | Plane / Custom | Plane | Freeform meter-based canvas |
-| Open Road | OpenRoad | Large native-road reference overlay |
+| Open Road | OpenRoad | Measured QCar trajectory reference with automatic full-loop extraction |
 | Cityscape | Cityscape | Calibrated map and automatic canvas fit |
 | Cityscape Lite | CityscapeLite | Shares the calibrated Cityscape map |
 | Townscape | Townscape | Calibrated map and automatic canvas fit |
@@ -158,6 +158,8 @@ QLabs_Track_Maker/
 
 ## Workspace calibration notes
 
+Open Road uses a QCar2 world-transform logger recording as its primary placement reference. The packaged recording contains 46,339 raw `[x, y, elevation_z]` samples over about 54.04 km. At load time the editor detects the first completed loop (about 49.91 km, returning within about 0.93 m of the start) and simplifies only the display copy to a 1.0 m XY tolerance. The full 3-D samples remain in `data/open_road_reference.json`. The logged QCar was driven in lane 2 (the middle lane) of the upper three-lane carriageway on the South/start straight, so the editor offsets the approximate separator centerline 6.125 m toward the driver's left from the measured trajectory. The multi-lane band is still visual context only; lane edges and the median were not directly surveyed by the logger.
+
 Cityscape/Cityscape Lite and Townscape/Townscape Lite use calibrated visual references derived from QLabs top-down captures. The Townscape calibration uses four published reference locations:
 
 - Open World Origin: `(0.000, 0.000)`
@@ -195,3 +197,9 @@ python -m compileall main.py config.py registry.py core export items services ui
 ```
 
 For a clean repository, Python bytecode caches (`__pycache__`) should normally be ignored rather than committed.
+
+### Measured Open Road elevation spawning
+
+For the native **Open Road** workspace (with **Cover disabled**), QLabs exports embed a compact 3-D elevation profile derived from `data/open_road_reference.json`. All exported scene actors use the nearest measured road segment to interpolate their local world Z; each actor's existing **Base Z** remains an additive fine-tuning offset. Newly added ground actors default to **-0.02 m Base Z** so their base is slightly embedded rather than visibly floating; crosswalks default to **+0.005 m** to avoid z-fighting. Primary and secondary QCar2 actors receive a **temporary +1.50 m spawn clearance** above the calculated local road height to avoid clipping into the native road mesh. Moving people, animals, and secondary QCar2 actors recompute the measured surface Z continuously along waypoint routes, so the QCar spawn clearance is not kept as a permanent driving-height offset. Enabling **Cover** intentionally disables native measured elevation and uses the Cover **Top Z** as the flat surface instead.
+
+Because the logger measured a driven lane rather than a full terrain mesh, X/Y positions at true vertically overlapping road sections can be ambiguous; use **Base Z** to resolve a specific upper/lower placement if needed.
