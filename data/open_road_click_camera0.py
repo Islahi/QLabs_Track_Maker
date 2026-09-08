@@ -7,31 +7,23 @@ Standalone PySide6 utility for Quanser QLabs Open Road.
 What it does
 ------------
 1. Loads the measured Open Road trajectory from open_road_reference.json.
-2. Loads actors and trigger zones from a QLabs Track Maker project JSON.
-3. Draws the first completed Open Road lap and selectable object markers.
-4. Connects to QLabs.
-5. When you click an actor/trigger marker, a QLabsFreeCamera is moved above
-   that object's position. Clicking elsewhere still moves it above that X/Y
+2. Draws the first completed Open Road lap.
+3. Connects to QLabs.
+4. When you left-click the map, a QLabsFreeCamera is moved above that X/Y
    using the measured Open Road Z at that location, and the camera is possessed.
-6. Polls an existing QCar2 actor and displays its live position and heading.
 
 Controls
 --------
-- Left click actor/trigger: move camera to its exact project position.
-- Left click elsewhere: move camera to clicked map position.
+- Left click: move QLabs camera to clicked map position.
 - Mouse wheel: zoom.
 - Middle/right drag: pan.
 - Reset View: fit the whole recorded Open Road loop.
-- Live QCar actor: choose which existing QCar2 is tracked on the map.
 
 Expected files
 --------------
 Place this script either:
 - beside open_road_reference.json, or
 - in the Track Maker project root where data/open_road_reference.json exists.
-
-Pass the Track Maker file with --project PATH. If omitted, the utility searches
-beside the script and in the current directory for a qlabs_track_editor JSON.
 
 Requirements
 ------------
@@ -48,19 +40,11 @@ import math
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import QPointF, Qt, QTimer, Signal
-from PySide6.QtGui import (
-    QColor,
-    QMouseEvent,
-    QPainter,
-    QPainterPath,
-    QPen,
-    QWheelEvent,
-)
+from PySide6.QtCore import QPointF, Qt, Signal
+from PySide6.QtGui import QColor, QMouseEvent, QPainter, QPainterPath, QPen, QWheelEvent
 from PySide6.QtWidgets import (
     QApplication,
     QDoubleSpinBox,
-    QFileDialog,
     QFormLayout,
     QHBoxLayout,
     QLabel,
@@ -102,33 +86,6 @@ LANE_WIDTH_M = 4.0
 MEDIAN_WIDTH_M = 0.25
 LOGGED_LANE_OFFSET_FROM_MEDIAN_M = MEDIAN_WIDTH_M / 2.0 + 1.5 * LANE_WIDTH_M
 TOTAL_APPROX_ROAD_WIDTH_M = 6.0 * LANE_WIDTH_M + MEDIAN_WIDTH_M
-
-# Track geometry is already represented by the measured Open Road trace. These
-# editor-only items are not actors and should not become selectable markers.
-NON_ACTOR_OBJECT_TYPES = {
-    "straight_road",
-    "continuous_road",
-    "curve_90",
-    "curve_45",
-    "t_junction",
-    "cross_intersection",
-    "road_end",
-    "reference_image",
-    "sketch_line",
-    "sketch_arc",
-    "sketch_circle",
-}
-
-OBJECT_COLORS = {
-    "trigger": QColor(222, 105, 255),
-    "qcar": QColor(80, 220, 145),
-    "sign": QColor(255, 205, 70),
-    "person": QColor(90, 190, 235),
-    "animal": QColor(230, 155, 70),
-    "actor": QColor(220, 225, 232),
-}
-
-QCAR_POLL_INTERVAL_MS = 100
 
 
 # ---------------------------------------------------------------------------
@@ -182,113 +139,6 @@ def load_measured_points(path: Path) -> tuple[dict, list[list[float]]]:
         raise ValueError("The reference contains fewer than two valid XYZ points.")
 
     return document, points
-
-
-def find_project_file(explicit: Path | None, reference_path: Path) -> Path | None:
-    """Find a Track Maker project, preferring the file passed by the user."""
-    if explicit is not None:
-        explicit = explicit.expanduser().resolve()
-        if explicit.is_file():
-            return explicit
-        raise FileNotFoundError(f"Project file not found: {explicit}")
-
-    script_dir = Path(__file__).resolve().parent
-    directories = [script_dir, Path.cwd().resolve()]
-    preferred_names = [
-        "open_road_only_car_with_signs.json",
-        "open_road_project.json",
-        "track.json",
-        "project.json",
-    ]
-
-    candidates: list[Path] = []
-    for directory in directories:
-        for name in preferred_names:
-            candidates.append(directory / name)
-        candidates.extend(sorted(directory.glob("*.json")))
-
-    seen: set[Path] = set()
-    for candidate in candidates:
-        candidate = candidate.resolve()
-        if candidate in seen or candidate == reference_path.resolve() or not candidate.is_file():
-            continue
-        seen.add(candidate)
-        try:
-            with candidate.open("r", encoding="utf-8") as handle:
-                document = json.load(handle)
-            if document.get("format") == "qlabs_track_editor":
-                return candidate
-        except (OSError, ValueError, TypeError):
-            continue
-    return None
-
-
-def object_category(object_type: str) -> str:
-    if object_type == "trigger_zone":
-        return "trigger"
-    if object_type in {"qcar2_start", "secondary_qcar2"}:
-        return "qcar"
-    if object_type in {
-        "stop_sign", "yield_sign", "roundabout_sign", "traffic_sign_catalog"
-    }:
-        return "sign"
-    if object_type == "person":
-        return "person"
-    if object_type == "animal":
-        return "animal"
-    return "actor"
-
-
-def load_project_objects(path: Path) -> tuple[dict, list[dict]]:
-    """Load every positioned actor and trigger from a Track Maker JSON."""
-    with path.open("r", encoding="utf-8") as handle:
-        document = json.load(handle)
-
-    if document.get("format") != "qlabs_track_editor":
-        raise ValueError("The selected JSON is not a QLabs Track Maker project.")
-
-    project_scale = float(document.get("project", {}).get("scale_factor", 1.0))
-    result: list[dict] = []
-    for index, item in enumerate(document.get("objects", [])):
-        if not isinstance(item, dict):
-            continue
-        object_type = str(item.get("type", "unknown"))
-        if object_type in NON_ACTOR_OBJECT_TYPES:
-            continue
-        try:
-            x = float(item["x"]) * project_scale
-            y = float(item["y"]) * project_scale
-        except (KeyError, TypeError, ValueError):
-            continue
-        if not math.isfinite(x) or not math.isfinite(y):
-            continue
-
-        identifier = str(
-            item.get("identifier") or item.get("id") or f"{object_type}_{index}"
-        )
-        category = object_category(object_type)
-        result.append(
-            {
-                "index": index,
-                "id": str(item.get("id", "")),
-                "identifier": identifier,
-                "type": object_type,
-                "category": category,
-                "x": x,
-                "y": y,
-                "z_offset": float(item.get("z_m", 0.0)) * project_scale,
-                "radius_m": (
-                    max(0.1, float(item.get("radius_m", 1.0))) * project_scale
-                    if category == "trigger"
-                    else 0.0
-                ),
-                "action": str(item.get("action", "")),
-                "target_id": str(item.get("target_id", "")),
-                "source": item,
-            }
-        )
-
-    return document, result
 
 
 def cumulative_distances(points: list[list[float]]) -> list[float]:
@@ -502,8 +352,6 @@ class QLabsCameraController:
     def __init__(self) -> None:
         self.qlabs = None
         self.camera = None
-        self.qcar = None
-        self.qcar_actor_number = None
         self.host = None
         self.actor_number = None
 
@@ -519,8 +367,6 @@ class QLabsCameraController:
                 pass
         self.qlabs = None
         self.camera = None
-        self.qcar = None
-        self.qcar_actor_number = None
 
     def connect(
         self,
@@ -574,24 +420,6 @@ class QLabsCameraController:
         self.host = host
         self.actor_number = int(actor_number)
 
-    def get_qcar_transform(
-        self, actor_number: int
-    ) -> tuple[list[float], list[float]] | None:
-        """Read an existing QCar2 actor's live world transform."""
-        if not self.connected:
-            return None
-        if self.qcar is None or self.qcar_actor_number != int(actor_number):
-            from qvl.qcar2 import QLabsQCar2
-
-            self.qcar = QLabsQCar2(self.qlabs)
-            self.qcar.actorNumber = int(actor_number)
-            self.qcar_actor_number = int(actor_number)
-
-        status, location, rotation, _scale = self.qcar.get_world_transform()
-        if not status:
-            return None
-        return [float(v) for v in location], [float(v) for v in rotation]
-
     def move_to(
         self,
         x: float,
@@ -632,21 +460,15 @@ class QLabsCameraController:
 # ---------------------------------------------------------------------------
 
 class OpenRoadMap(QWidget):
-    pointClicked = Signal(float, float, float, float, object)
+    pointClicked = Signal(float, float, float, float)
 
-    def __init__(
-        self,
-        raw_loop_points: list[list[float]],
-        scene_objects: list[dict] | None = None,
-        parent=None,
-    ) -> None:
+    def __init__(self, raw_loop_points: list[list[float]], parent=None) -> None:
         super().__init__(parent)
         self.setMinimumSize(900, 520)
         self.setMouseTracking(True)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
         self.raw_loop_points = raw_loop_points
-        self.scene_objects = list(scene_objects or [])
         self.display_points = rdp_simplify(raw_loop_points, tolerance_m=3.0)
 
         # Reconstruct approximate road median from the measured middle-lane path.
@@ -656,8 +478,8 @@ class OpenRoadMap(QWidget):
             closed=True,
         )
 
-        xs = [float(p[0]) for p in raw_loop_points] + [o["x"] for o in self.scene_objects]
-        ys = [float(p[1]) for p in raw_loop_points] + [o["y"] for o in self.scene_objects]
+        xs = [float(p[0]) for p in raw_loop_points]
+        ys = [float(p[1]) for p in raw_loop_points]
         self.data_min_x = min(xs)
         self.data_max_x = max(xs)
         self.data_min_y = min(ys)
@@ -671,57 +493,10 @@ class OpenRoadMap(QWidget):
         self.zoom = 1.0
 
         self.selected: tuple[float, float, float, float] | None = None
-        self.selected_object: dict | None = None
-        self.hover_object: dict | None = None
         self.hover_world: tuple[float, float] | None = None
-        self.live_qcar_pose: tuple[float, float, float, float, int] | None = None
 
         self._pan_active = False
         self._pan_last = QPointF()
-
-    def set_live_qcar_pose(
-        self,
-        x: float,
-        y: float,
-        z: float,
-        yaw_rad: float,
-        actor_number: int,
-    ) -> None:
-        self.live_qcar_pose = (x, y, z, yaw_rad, actor_number)
-        self.update()
-
-    def clear_live_qcar_pose(self) -> None:
-        if self.live_qcar_pose is not None:
-            self.live_qcar_pose = None
-            self.update()
-
-    def set_scene_objects(self, scene_objects: list[dict]) -> None:
-        self.scene_objects = list(scene_objects)
-        self.selected_object = None
-        self.hover_object = None
-        xs = [float(p[0]) for p in self.raw_loop_points] + [o["x"] for o in self.scene_objects]
-        ys = [float(p[1]) for p in self.raw_loop_points] + [o["y"] for o in self.scene_objects]
-        self.data_min_x, self.data_max_x = min(xs), max(xs)
-        self.data_min_y, self.data_max_y = min(ys), max(ys)
-        self.data_center_x = (self.data_min_x + self.data_max_x) / 2.0
-        self.data_center_y = (self.data_min_y + self.data_max_y) / 2.0
-        self.reset_view()
-
-    def hit_test_object(self, pos: QPointF) -> dict | None:
-        best: tuple[float, dict] | None = None
-        scale = self.pixels_per_metre()
-        for scene_object in self.scene_objects:
-            center = self.world_to_screen(scene_object["x"], scene_object["y"])
-            distance_px = math.hypot(pos.x() - center.x(), pos.y() - center.y())
-            if scene_object["category"] == "trigger":
-                hit_radius = max(9.0, min(90.0, scene_object["radius_m"] * scale))
-            else:
-                hit_radius = 10.0
-            if distance_px <= hit_radius:
-                score = distance_px / max(hit_radius, 1.0)
-                if best is None or score < best[0]:
-                    best = (score, scene_object)
-        return None if best is None else best[1]
 
     def reset_view(self) -> None:
         self.center_x = self.data_center_x
@@ -798,73 +573,6 @@ class OpenRoadMap(QWidget):
         painter.setPen(trajectory_pen)
         painter.drawPath(self.make_path(self.display_points))
 
-        # Project actors and triggers. Trigger radii are drawn to scale when
-        # visible, while all marker centres retain a practical click target.
-        for scene_object in self.scene_objects:
-            p = self.world_to_screen(scene_object["x"], scene_object["y"])
-            color = OBJECT_COLORS[scene_object["category"]]
-            is_active = (
-                scene_object is self.hover_object
-                or scene_object is self.selected_object
-            )
-            marker_radius = 7.0 if is_active else 4.5
-            pen = QPen(color, 2.5 if is_active else 1.5)
-            pen.setCosmetic(True)
-            if scene_object["category"] == "trigger":
-                pen.setStyle(Qt.PenStyle.DashLine)
-                radius_px = max(
-                    5.0, min(150.0, scene_object["radius_m"] * scale)
-                )
-                painter.setPen(pen)
-                painter.setBrush(Qt.BrushStyle.NoBrush)
-                painter.drawEllipse(p, radius_px, radius_px)
-                painter.drawLine(
-                    p + QPointF(-marker_radius, 0),
-                    p + QPointF(marker_radius, 0),
-                )
-                painter.drawLine(
-                    p + QPointF(0, -marker_radius),
-                    p + QPointF(0, marker_radius),
-                )
-            else:
-                painter.setPen(pen)
-                painter.setBrush(
-                    QColor(color.red(), color.green(), color.blue(), 155)
-                )
-                painter.drawEllipse(p, marker_radius, marker_radius)
-
-            if is_active or self.zoom >= 4.0:
-                painter.setPen(QColor(245, 247, 250))
-                painter.drawText(
-                    p + QPointF(9.0, -8.0), scene_object["identifier"]
-                )
-
-        # Live QCar position. The arrow points in the actor's world yaw.
-        if self.live_qcar_pose is not None:
-            car_x, car_y, car_z, yaw_rad, actor_number = self.live_qcar_pose
-            center = self.world_to_screen(car_x, car_y)
-            direction = QPointF(math.cos(yaw_rad), -math.sin(yaw_rad))
-            side = QPointF(-direction.y(), direction.x())
-            front = center + direction * 12.0
-            rear_left = center - direction * 8.0 + side * 7.0
-            rear_right = center - direction * 8.0 - side * 7.0
-
-            car_path = QPainterPath()
-            car_path.moveTo(front)
-            car_path.lineTo(rear_left)
-            car_path.lineTo(rear_right)
-            car_path.closeSubpath()
-            car_pen = QPen(QColor(70, 255, 120), 2.0)
-            car_pen.setCosmetic(True)
-            painter.setPen(car_pen)
-            painter.setBrush(QColor(30, 210, 90, 210))
-            painter.drawPath(car_path)
-            painter.setPen(QColor(225, 255, 235))
-            painter.drawText(
-                center + QPointF(14.0, -12.0),
-                f"QCar {actor_number} | Z {car_z:.2f} m",
-            )
-
         # World origin.
         origin = self.world_to_screen(0.0, 0.0)
         axis_pen = QPen(QColor(95, 155, 205, 140), 1.0)
@@ -889,12 +597,6 @@ class OpenRoadMap(QWidget):
                 f"  X {x:.2f}  Y {y:.2f}  road Z {z:.2f} m"
                 f"  | nearest trace {distance_to_trace:.1f} m"
             )
-            if self.selected_object is not None:
-                label = (
-                    f"  {self.selected_object['identifier']} "
-                    f"({self.selected_object['type']}) | "
-                    f"X {x:.2f} Y {y:.2f} Z {z:.2f} m"
-                )
             painter.drawText(p + QPointF(9.0, -9.0), label)
 
         # Hover coordinate readout.
@@ -907,8 +609,7 @@ class OpenRoadMap(QWidget):
         painter.drawText(
             12,
             self.height() - 12,
-            "Green arrow: live QCar   |   Left click: move camera   |   "
-            "Wheel: zoom   |   Middle/right drag: pan",
+            "Left click: move QLabs camera   |   Wheel: zoom   |   Middle/right drag: pan",
         )
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
@@ -921,13 +622,6 @@ class OpenRoadMap(QWidget):
             self.center_x -= delta.x() / scale
             self.center_y += delta.y() / scale
             self._pan_last = pos
-        else:
-            self.hover_object = self.hit_test_object(pos)
-            self.setCursor(
-                Qt.CursorShape.PointingHandCursor
-                if self.hover_object is not None
-                else Qt.CursorShape.ArrowCursor
-            )
 
         self.update()
 
@@ -939,21 +633,12 @@ class OpenRoadMap(QWidget):
             return
 
         if event.button() == Qt.MouseButton.LeftButton:
-            selected_object = self.hit_test_object(event.position())
-            if selected_object is None:
-                x, y = self.screen_to_world(event.position())
-            else:
-                x, y = selected_object["x"], selected_object["y"]
+            x, y = self.screen_to_world(event.position())
             z, nearest_x, nearest_y, distance_to_trace = measured_surface_z(
                 x, y, self.raw_loop_points
             )
-            if selected_object is not None:
-                z += selected_object["z_offset"]
-            self.selected_object = selected_object
             self.selected = (x, y, z, distance_to_trace)
-            self.pointClicked.emit(
-                x, y, z, distance_to_trace, selected_object
-            )
+            self.pointClicked.emit(x, y, z, distance_to_trace)
             self.update()
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
@@ -987,9 +672,6 @@ class MainWindow(QMainWindow):
         raw_points: list[list[float]],
         loop_points: list[list[float]],
         loop_info: dict,
-        project_path: Path | None,
-        project_document: dict | None,
-        scene_objects: list[dict],
     ) -> None:
         super().__init__()
         self.setWindowTitle("QLabs Open Road Click-to-Camera")
@@ -1000,9 +682,6 @@ class MainWindow(QMainWindow):
         self.raw_points = raw_points
         self.loop_points = loop_points
         self.loop_info = loop_info
-        self.project_path = project_path
-        self.project_document = project_document
-        self.scene_objects = scene_objects
         self.controller = QLabsCameraController()
 
         root = QWidget()
@@ -1022,12 +701,6 @@ class MainWindow(QMainWindow):
         self.camera_actor_spin.setRange(0, 2_000_000_000)
         self.camera_actor_spin.setValue(DEFAULT_CAMERA_ACTOR)
         connection_form.addRow("Free camera actor", self.camera_actor_spin)
-
-        self.qcar_actor_spin = QSpinBox()
-        self.qcar_actor_spin.setRange(0, 2_000_000_000)
-        self.qcar_actor_spin.setValue(0)
-        self.qcar_actor_spin.valueChanged.connect(self.change_tracked_qcar)
-        connection_form.addRow("Live QCar actor", self.qcar_actor_spin)
 
         camera_form = QFormLayout()
         controls.addLayout(camera_form)
@@ -1069,26 +742,16 @@ class MainWindow(QMainWindow):
         self.reset_button = QPushButton("Reset Map View")
         buttons.addWidget(self.reset_button)
 
-        self.project_button = QPushButton("Load / Reload Project JSON")
-        self.project_button.clicked.connect(self.load_project_dialog)
-        buttons.addWidget(self.project_button)
-
         buttons.addStretch(1)
 
         self.status_label = QLabel("Not connected to QLabs.")
         self.status_label.setWordWrap(True)
         controls.addWidget(self.status_label, 1)
 
-        self.map_widget = OpenRoadMap(loop_points, scene_objects)
+        self.map_widget = OpenRoadMap(loop_points)
         self.map_widget.pointClicked.connect(self.on_map_clicked)
         self.reset_button.clicked.connect(self.map_widget.reset_view)
         outer.addWidget(self.map_widget, 1)
-
-        self._qcar_missing_reported = False
-        self.qcar_timer = QTimer(self)
-        self.qcar_timer.setInterval(QCAR_POLL_INTERVAL_MS)
-        self.qcar_timer.timeout.connect(self.update_live_qcar)
-        self.qcar_timer.start()
 
         loop_km = float(loop_info.get("distance_m", 0.0)) / 1000.0
         return_error = loop_info.get("return_distance_m")
@@ -1097,90 +760,14 @@ class MainWindow(QMainWindow):
         else:
             return_text = f"{float(return_error):.2f} m"
 
-        self._loop_summary = (
-            f"Reference: {reference_path}  | raw points: {len(raw_points):,}  | "
-            f"displayed lap: {loop_km:.2f} km  | loop closure: {return_text}"
+        self.info_label = QLabel(
+            f"Reference: {reference_path}  |  "
+            f"raw points: {len(raw_points):,}  |  "
+            f"displayed lap: {loop_km:.2f} km  |  "
+            f"loop closure: {return_text}"
         )
-        self.info_label = QLabel()
         self.info_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         outer.addWidget(self.info_label)
-        self.refresh_info_label()
-
-    def change_tracked_qcar(self) -> None:
-        self._qcar_missing_reported = False
-        self.map_widget.clear_live_qcar_pose()
-
-    def update_live_qcar(self) -> None:
-        if not self.controller.connected:
-            return
-        try:
-            transform = self.controller.get_qcar_transform(
-                self.qcar_actor_spin.value()
-            )
-            if transform is None:
-                self.map_widget.clear_live_qcar_pose()
-                if not self._qcar_missing_reported:
-                    self.status_label.setText(
-                        f"QCar actor {self.qcar_actor_spin.value()} was not found. "
-                        "Check its actor number."
-                    )
-                    self._qcar_missing_reported = True
-                return
-
-            location, rotation = transform
-            self.map_widget.set_live_qcar_pose(
-                x=location[0],
-                y=location[1],
-                z=location[2],
-                yaw_rad=rotation[2],
-                actor_number=self.qcar_actor_spin.value(),
-            )
-            self._qcar_missing_reported = False
-        except Exception as exc:
-            self.map_widget.clear_live_qcar_pose()
-            if not self._qcar_missing_reported:
-                self.status_label.setText(f"Could not read live QCar position: {exc}")
-                self._qcar_missing_reported = True
-
-    def refresh_info_label(self) -> None:
-        actors = sum(o["category"] != "trigger" for o in self.scene_objects)
-        triggers = sum(o["category"] == "trigger" for o in self.scene_objects)
-        project_text = str(self.project_path) if self.project_path else "none loaded"
-        self.info_label.setText(
-            f"{self._loop_summary}  | Project: {project_text}  | "
-            f"actors: {actors}  | triggers: {triggers}"
-        )
-
-    def load_project_dialog(self) -> None:
-        initial = str(
-            self.project_path.parent
-            if self.project_path
-            else self.reference_path.parent
-        )
-        filename, _ = QFileDialog.getOpenFileName(
-            self,
-            "Load QLabs Track Maker project",
-            initial,
-            "JSON files (*.json)",
-        )
-        if not filename:
-            return
-        try:
-            project_path = Path(filename).resolve()
-            project_document, scene_objects = load_project_objects(project_path)
-            self.project_path = project_path
-            self.project_document = project_document
-            self.scene_objects = scene_objects
-            self.map_widget.set_scene_objects(scene_objects)
-            self.refresh_info_label()
-            actors = sum(o["category"] != "trigger" for o in scene_objects)
-            triggers = sum(o["category"] == "trigger" for o in scene_objects)
-            self.status_label.setText(
-                f"Loaded {actors} actors and {triggers} triggers. "
-                "Click a marker to move the camera."
-            )
-        except Exception as exc:
-            QMessageBox.warning(self, "Could not load project", str(exc))
 
     def connect_qlabs(self) -> None:
         try:
@@ -1199,11 +786,8 @@ class MainWindow(QMainWindow):
             )
             self.status_label.setText(
                 f"Connected to QLabs. Free camera actor "
-                f"{self.camera_actor_spin.value()} is possessed. Tracking QCar "
-                f"actor {self.qcar_actor_spin.value()} on the map."
+                f"{self.camera_actor_spin.value()} is possessed. Click the map."
             )
-            self._qcar_missing_reported = False
-            self.update_live_qcar()
         except Exception as exc:
             self.status_label.setText(f"QLabs connection failed: {exc}")
             QMessageBox.critical(self, "QLabs connection failed", str(exc))
@@ -1214,18 +798,10 @@ class MainWindow(QMainWindow):
         y: float,
         surface_z: float,
         distance_to_trace: float,
-        selected_object: object,
     ) -> None:
-        object_text = ""
-        if isinstance(selected_object, dict):
-            object_text = (
-                f"Selected {selected_object['identifier']} "
-                f"({selected_object['type']}) at "
-            )
         if not self.controller.connected:
             self.status_label.setText(
-                f"{object_text or 'Selected '}X={x:.2f}, Y={y:.2f}, "
-                f"Z≈{surface_z:.2f} m. "
+                f"Selected X={x:.2f}, Y={y:.2f}, road Z≈{surface_z:.2f} m. "
                 "Connect to QLabs to move the camera."
             )
             return
@@ -1241,8 +817,7 @@ class MainWindow(QMainWindow):
                 fov_deg=self.fov_spin.value(),
             )
             self.status_label.setText(
-                f"{object_text}Camera moved to X={location[0]:.2f}, "
-                f"Y={location[1]:.2f}, "
+                f"Camera moved to X={location[0]:.2f}, Y={location[1]:.2f}, "
                 f"Z={location[2]:.2f} m. "
                 f"Measured surface Z≈{surface_z:.2f} m; "
                 f"click is {distance_to_trace:.1f} m from the logged trajectory."
@@ -1252,7 +827,6 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Camera move failed", str(exc))
 
     def closeEvent(self, event) -> None:
-        self.qcar_timer.stop()
         self.controller.close()
         super().closeEvent(event)
 
@@ -1268,12 +842,6 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Path to open_road_reference.json",
     )
-    parser.add_argument(
-        "--project",
-        type=Path,
-        default=None,
-        help="Path to a qlabs_track_editor project JSON containing actors/triggers",
-    )
     return parser.parse_args()
 
 
@@ -1284,11 +852,6 @@ def main() -> int:
         reference_path = find_reference_file(args.reference)
         document, raw_points = load_measured_points(reference_path)
         loop_points, loop_info = extract_stable_completed_loop(raw_points)
-        project_path = find_project_file(args.project, reference_path)
-        if project_path is None:
-            project_document, scene_objects = None, []
-        else:
-            project_document, scene_objects = load_project_objects(project_path)
     except Exception as exc:
         print(f"Could not load Open Road reference: {exc}", file=sys.stderr)
         return 1
@@ -1300,9 +863,6 @@ def main() -> int:
         raw_points=raw_points,
         loop_points=loop_points,
         loop_info=loop_info,
-        project_path=project_path,
-        project_document=project_document,
-        scene_objects=scene_objects,
     )
     window.show()
     return app.exec()
