@@ -60,6 +60,8 @@ from config import (
     OPEN_ROAD_REFERENCE_MEASURED_LANE_FROM_SEPARATOR,
     OPEN_ROAD_REFERENCE_MEASURED_TO_SEPARATOR_NORMAL_SIGN,
     OPEN_ROAD_REFERENCE_MEASURED_TO_SEPARATOR_OFFSET_M,
+    OPEN_ROAD_NEW_ACTOR_GROUND_EMBED_M,
+    OPEN_ROAD_CROSSWALK_SURFACE_OFFSET_M,
     CROSSWALK_MARKER_LENGTH_M,
     CROSSWALK_MARKER_WIDTH_M,
     CROSSWALK_QLABS_BASE_SCALE,
@@ -1436,6 +1438,32 @@ class TrackEditorWindow(QMainWindow):
         for item in ordered:
             self._assign_readable_identifier_if_needed(item)
 
+    def _apply_new_open_road_actor_z_default(self, item: TrackItem):
+        """Assign a sensible Base Z offset to newly added native Open Road actors.
+
+        Open Road terrain elevation itself is resolved automatically by the
+        exporter from the measured XYZ trajectory.  Base Z therefore remains a
+        *relative* fine-tuning offset.  New ground actors are embedded slightly
+        to hide their base, while crosswalks stay just above the surface to
+        avoid z-fighting.  QCar spawn clearance is handled separately by the
+        exporter so a moving QCar can settle/follow the true road elevation.
+        """
+        if self.workspace_mode != WORKSPACE_OPEN_ROAD:
+            return
+        if bool(self.workspace_platform_enabled):
+            return
+        if not isinstance(item, SceneActorItem):
+            return
+
+        if isinstance(item, SecondaryQCarItem):
+            # QCar +1.5 m spawn clearance is transient and must not be stored as
+            # Base Z, otherwise a waypoint-driven QCar would remain floating.
+            item.z_m = 0.0
+        elif isinstance(item, CrosswalkItem):
+            item.z_m = float(OPEN_ROAD_CROSSWALK_SURFACE_OFFSET_M)
+        else:
+            item.z_m = float(OPEN_ROAD_NEW_ACTOR_GROUND_EMBED_M)
+
     def _add_item_at_view_center(self, item: TrackItem):
         self._begin_undo_transaction(f"Add {item.DISPLAY_NAME}")
         center_scene = self.view.mapToScene(self.view.viewport().rect().center())
@@ -1451,6 +1479,7 @@ class TrackEditorWindow(QMainWindow):
         # The canvas rectangle limits auto-fill, but does not lock manual dragging.
         self.scene.addItem(item)
         item.setPos(proposed)
+        self._apply_new_open_road_actor_z_default(item)
         item.setSelected(True)
         self.update_selection_info()
         self._commit_undo_transaction()

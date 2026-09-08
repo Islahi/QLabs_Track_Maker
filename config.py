@@ -66,6 +66,15 @@ OPEN_ROAD_REFERENCE_TOTAL_WIDTH_M = (
     + OPEN_ROAD_REFERENCE_SEPARATOR_WIDTH_M
 )
 
+# Automatic native Open Road actor-height defaults.  The measured XYZ path
+# supplies the local terrain/road elevation; these values are only offsets.
+# QCars spawn above the road so their body/wheels are not created inside the
+# native mesh.  Ordinary ground actors are placed a few centimetres into the
+# surface so model bases/plinths do not visibly float.
+OPEN_ROAD_QCAR_SPAWN_CLEARANCE_M = 1.50
+OPEN_ROAD_NEW_ACTOR_GROUND_EMBED_M = -0.02
+OPEN_ROAD_CROSSWALK_SURFACE_OFFSET_M = 0.005
+
 # The two-hour logger run was driven in the MIDDLE lane of the upper
 # three-lane carriageway on the long South/start straight.  The logged QCar
 # trajectory is therefore a lane center, not the road/median centerline.

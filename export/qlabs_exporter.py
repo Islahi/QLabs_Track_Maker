@@ -211,6 +211,11 @@ NEXT_COMPOSITE_BASIC_SHAPE_ACTOR_NUMBER = 5000
 # character follows without using the Open World's navigation mesh.
 MANUAL_CHARACTER_PROXY_SCALE = 0.001
 
+# Native Open Road actor placement.  The measured XYZ profile gives the local
+# road elevation.  QCars are created above it to avoid clipping into the road
+# mesh, while normal actors use their Base Z offset directly.
+OPEN_ROAD_QCAR_SPAWN_CLEARANCE_M = 1.50
+
 ROAD_COLOR = [75 / 255.0, 75 / 255.0, 75 / 255.0]
 # A cover box needs a tiny additional lift to avoid z-fighting with its top
 # face.  Without a cover, TRACK_BASE_Z already is the selected workspace's
@@ -1533,7 +1538,7 @@ def _movement_route_design(obj):
 
 def _scaled_route(obj):
     scale = project_scale()
-    z_offset = max(0.005, float(obj.get("z_m", 0.0)) * scale)
+    z_offset = float(obj.get("z_m", 0.0)) * scale
     route = []
     for point in _movement_route_design(obj):
         world_x = point[0] * scale
@@ -1847,7 +1852,7 @@ def update_actor_movements():
         # Native Open Road routes follow the measured elevation continuously,
         # even when waypoints are far apart. Cover mode/other workspaces retain
         # their existing flat TRACK_BASE_Z behavior.
-        z_offset = max(0.005, float(obj.get("z_m", 0.0)) * project_scale())
+        z_offset = float(obj.get("z_m", 0.0)) * project_scale()
         pos[2] = surface_z_at_world_xy(pos[0], pos[1]) + z_offset
 
         if obj_type == "secondary_qcar2":
@@ -3219,7 +3224,8 @@ def spawn_scene_actor(qlabs, obj):
     if obj_type == "crosswalk":
         actor = QLabsCrosswalk(qlabs)
         location = actor_location(obj)
-        location[2] = max(location[2], ROAD_Z + 0.005)
+        if not OPEN_ROAD_NATIVE_ELEVATION_ENABLED:
+            location[2] = max(location[2], ROAD_Z + 0.005)
         fitted_scale = actor_scale * CROSSWALK_QLABS_BASE_SCALE
         length_factor = max(
             0.01,
@@ -3311,9 +3317,14 @@ def spawn_scene_actor(qlabs, obj):
         actor = QLabsQCar2(qlabs)
         actor_number = NEXT_SECONDARY_QCAR_ACTOR_NUMBER
         NEXT_SECONDARY_QCAR_ACTOR_NUMBER += 1
+        qcar_spawn_clearance = (
+            OPEN_ROAD_QCAR_SPAWN_CLEARANCE_M * project_scale()
+            if OPEN_ROAD_NATIVE_ELEVATION_ENABLED
+            else 0.005
+        )
         actor.spawn_id(
             actorNumber=actor_number,
-            location=actor_location(obj, extra_z=0.005),
+            location=actor_location(obj, extra_z=qcar_spawn_clearance),
             rotation=[0, 0, yaw],
             scale=uniform_scale,
             configuration=0,
@@ -3478,7 +3489,11 @@ def spawn_qcar2(qlabs):
             world_x,
             world_y,
             surface_z_at_world_xy(world_x, world_y)
-            + 2.0 * scale,  # Spawn above the local native/cover surface.
+            + (
+                OPEN_ROAD_QCAR_SPAWN_CLEARANCE_M * scale
+                if OPEN_ROAD_NATIVE_ELEVATION_ENABLED
+                else 2.0 * scale
+            ),  # Lift native Open Road QCar above local measured road Z.
         ],
         rotation=[
             0,
